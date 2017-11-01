@@ -562,12 +562,12 @@ TEST(d_tests, write_file_fill) {
     int fd = fs_open(fs, fnames[0]);
     ASSERT_GE(fd, 0);
 	
-<<<<<<< HEAD
+// <<<<<<< HEAD
 	// the math below is a whole mess! But I think the calculation is correct.
 	
-=======
+// =======
 	// the math below is a mess! But I think the calculation is correct.
->>>>>>> 58bbb8583cb104fd9b32d97baac6b9c3de8a5942
+// >>>>>>> 58bbb8583cb104fd9b32d97baac6b9c3de8a5942
     // Alrighty, time to get some work done.
     // This FS object has one block eaten up at the moment for root, so we have...
     // Oh dear lord the math is all different from last semester
@@ -830,8 +830,8 @@ TEST(h_tests, read) {
 }
 
 #ifdef GRAD_TESTS
-<<<<<<< HEAD
-=======
+// <<<<<<< HEAD
+// =======
 
 /*
     int fs_move(F17FS *fs, const char *src, const char *dst);
@@ -850,7 +850,7 @@ TEST(h_tests, read) {
     13. Error, dst root?
     14. Error, Directory into itself
 */
->>>>>>> 58bbb8583cb104fd9b32d97baac6b9c3de8a5942
+// >>>>>>> 58bbb8583cb104fd9b32d97baac6b9c3de8a5942
 TEST(i_tests, move) {
     vector<const char *> fnames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",

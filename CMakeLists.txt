@@ -22,11 +22,11 @@ target_link_libraries(F17FS back_store dyn_array bitmap)
 add_executable(fs_test test/tests.cpp)
 
 # Enable grad/bonus tests by setting the variable to 1
-<<<<<<< HEAD
+# <<<<<<< HEAD
 target_compile_definitions(fs_test PRIVATE GRAD_TESTS=0)
-=======
-target_compile_definitions(fs_test PRIVATE GRAD_TESTS=1)
->>>>>>> 58bbb8583cb104fd9b32d97baac6b9c3de8a5942
+# =======
+# target_compile_definitions(fs_test PRIVATE GRAD_TESTS=1)
+# >>>>>>> 58bbb8583cb104fd9b32d97baac6b9c3de8a5942
 
 target_link_libraries(fs_test F17FS ${GTEST_LIBRARIES} pthread)
 #install(TARGETS F17FS DESTINATION lib)
