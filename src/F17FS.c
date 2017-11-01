@@ -8,8 +8,11 @@
 /// \return Mounted F17FS object, NULL on error
 ///
 
-F17FS_t fs_format(const char *path){
-    return NULL;
+F17FS_t *fs_format(const char *path){
+	if(path == NULL){
+		return NULL;
+	}
+	return NULL;
 }
 
 ///
@@ -20,7 +23,8 @@ F17FS_t fs_format(const char *path){
 
 ///
 F17FS_t *fs_mount(const char *path){
-    return NULL;   
+   if(path == NULL){return NULL;} 
+	return NULL;   
 }
 
 ///
@@ -29,7 +33,10 @@ F17FS_t *fs_mount(const char *path){
 /// \return 0 on success, < 0 on failure
 ///
 int fs_unmount(F17FS_t *fs){
-    return -1;
+   if(fs == NULL){
+		return -1;
+	} 
+	return -1;
 }
 
 
@@ -42,7 +49,10 @@ int fs_unmount(F17FS_t *fs){
 /// \return 0 on success, < 0 on failure
 ///
 int fs_create(F17FS_t *fs, const char *path, file_t type){
-    return -1;   
+   if(fs == NULL || path == NULL || type == FS_REGULAR ){
+		return -1;
+	} 
+	return -1;   
 }
 
 ///
@@ -54,7 +64,10 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 /// \return file descriptor to the requested file, < 0 on error
 ///
 int fs_open(F17FS_t *fs, const char *path){
-    return -1;
+   if(fs == NULL || path == NULL){
+		return -1;
+	} 
+	return -1;
 }
 
 ///
@@ -64,7 +77,10 @@ int fs_open(F17FS_t *fs, const char *path){
 /// \return 0 on success, < 0 on failure
 ///
 int fs_close(F17FS_t *fs, int fd){
-    return -1
+   if(fs == NULL || fd < 0){
+		return -1;
+	} 
+	return -1;
 }
 
 ///
@@ -78,7 +94,10 @@ int fs_close(F17FS_t *fs, int fd){
 /// \return offset from BOF, < 0 on error
 ///
 off_t fs_seek(F17FS_t *fs, int fd, off_t offset, seek_t whence){
-    return -1
+   if(fs==NULL||fd<0||offset==0||whence<0){
+		return -1;
+	} 
+	return -1;
 }
 
 ///
@@ -92,7 +111,10 @@ off_t fs_seek(F17FS_t *fs, int fd, off_t offset, seek_t whence){
 /// \return number of bytes read (< nbyte IFF read passes EOF), < 0 on error
 ///
 ssize_t fs_read(F17FS_t *fs, int fd, void *dst, size_t nbyte){
-    return -1;
+   if(fs==NULL||fd<0||dst==NULL||nbyte==0){
+		return -1;
+	} 
+	return -1;
 }
 
 ///
@@ -107,7 +129,10 @@ ssize_t fs_read(F17FS_t *fs, int fd, void *dst, size_t nbyte){
 /// \return number of bytes written (< nbyte IFF out of space), < 0 on error
 ///
 ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
-    return -1;
+   if(fs==NULL||fd<0||src==NULL||nbyte==0){
+		return -1;
+	} 
+	return -1;
 }
 
 ///
@@ -118,7 +143,8 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 /// \return 0 on success, < 0 on error
 ///
 int fs_remove(F17FS_t *fs, const char *path){
-    return -1;
+   if(fs==NULL||path==NULL){return -1;} 
+	return -1;
 }
 
 ///
@@ -129,7 +155,8 @@ int fs_remove(F17FS_t *fs, const char *path){
 /// \return dyn_array of file records, NULL on error
 ///
 dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
-    return NULL;
+   if(fs==NULL||path==NULL){return NULL;} 
+	return NULL;
 }
 
 /// Moves the file from one location to the other
@@ -140,6 +167,9 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
 /// \return 0 on success, < 0 on error
 ///
 int fs_move(F17FS_t *fs, const char *src, const char *dst){
-    return -1;
+   if(fs==NULL||src==NULL||dst==NULL){
+		return -1;
+	} 
+	return -1;
 }
 
