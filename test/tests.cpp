@@ -634,6 +634,7 @@ TEST(d_tests, write_file_fill) {
     fs_unmount(fs);
     score += 15;
 }
+*/
 /* 0-33 34-65519 65520-65535
     int fs_remove(F17FS *fs, const char *path);
     1. Normal, file at root
