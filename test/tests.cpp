@@ -861,6 +861,7 @@ TEST(h_tests, read) {
     14. Error, Directory into itself
 */
 // >>>>>>> 58bbb8583cb104fd9b32d97baac6b9c3de8a5942
+/*
 TEST(i_tests, move) {
     vector<const char *> fnames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -976,6 +977,7 @@ TEST(i_tests, move) {
     fs_unmount(fs);
     score += 15;
 }
+*/
 /*
     int fs_link(F17FS *fs, const char *src, const char *dst);
 	Finish this part, get 20 points!
