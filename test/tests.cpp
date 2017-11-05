@@ -77,7 +77,7 @@ TEST(a_tests, format_mount_unmount) {
     
 }
 
-
+/*
 TEST(b_tests, file_creation_one) {
     vector<const char *> filenames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -175,7 +175,9 @@ TEST(b_tests, file_creation_one) {
     fs_unmount(fs);
     score += 5;
     
-}
+} */
+
+/*
 TEST(b_tests, file_creation_two) {
     // CREATE_FILE 19 - OUT OF INODES (and test 18 along the way)
     // Gotta make... Uhh... A bunch of files. (255, but we'll need directories to hold them as well)
@@ -261,7 +263,7 @@ TEST(b_tests, file_creation_two) {
     fs_unmount(fs);
     // ... Can't really test 21 yet.
     score += 5;
-}
+} */
 /*
     int fs_open(F17FS *fs, const char *path)
     1. Normal, file at root
@@ -282,6 +284,7 @@ TEST(b_tests, file_creation_two) {
     6. Error, invalid fd, positive, out of bounds
     7. Error, invaid fs, negative
 */
+/*
 TEST(c_tests, open_close_file) {
     vector<const char *> filenames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -378,7 +381,7 @@ TEST(c_tests, open_close_file) {
     ASSERT_LT(err, 0);
     fs_unmount(fs);
     score += 20;
-}
+}*/
 /*
     int fs_get_dir(const F17FS *const fs, const char *const fname, dir_rec_t *const records)
     1. Normal, root I guess?
@@ -389,6 +392,7 @@ TEST(c_tests, open_close_file) {
     6. Error, NULL fs
     7. Error, not a directory
 */
+/*
 TEST(f_tests, get_dir) {
     vector<const char *> fnames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -445,7 +449,7 @@ TEST(f_tests, get_dir) {
     ASSERT_EQ(record_results, nullptr);
     fs_unmount(fs);
     score += 10;
-}
+}*/
 /*
     ssize_t fs_write(F17FS *fs, int fd, const void *src, size_t nbyte);
     1. Normal, 0 size to < 1 block
@@ -462,6 +466,7 @@ TEST(f_tests, get_dir) {
     12. Error, nbyte 0 (not an error...? Bad parameters? Hmm.)
     13. Error, bad fd
 */
+/*
 TEST(d_tests, write_file_simple) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "d_tests_normal.F17FS";
@@ -546,7 +551,8 @@ TEST(d_tests, write_file_simple) {
     // And I'm going to unmount without closing.
     fs_unmount(fs);
     
-}
+}*/
+/*
 TEST(d_tests, write_file_fill) {
     // Still gotta test write 6,7,8,9
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
@@ -641,6 +647,7 @@ TEST(d_tests, write_file_fill) {
     9. Error, NULL fname
     10. Error, Empty fname (same as file does not exist?)
 */
+/*
 TEST(e_tests, remove_file) {
     vector<const char *> b_fnames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -690,7 +697,7 @@ TEST(e_tests, remove_file) {
     fs_unmount(fs);
     score += 15;
 }
-
+*/
 /*
     off_t fs_seek(F17FS *fs, int fd, off_t offset, seek_t whence)
     1. Normal, wherever, really - make sure it doesn't change a second fd to the file
@@ -700,6 +707,7 @@ TEST(e_tests, remove_file) {
     5. Error, fd invalid
     6. Error, whence not a valid value
 */
+/*
 TEST(g_tests, seek) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -738,7 +746,7 @@ TEST(g_tests, seek) {
     ASSERT_LT(position, 0);
     fs_unmount(fs);
     score += 13;
-}
+}*/
 /*
     ssize_t fs_read(F17FS *fs, int fd, void *dst, size_t nbyte);
     1. Normal, begin to < 1 block
@@ -753,6 +761,7 @@ TEST(g_tests, seek) {
     10. Normal, nbyte 0
     11. Normal, at EOF
 */
+/*
 TEST(h_tests, read) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -828,7 +837,7 @@ TEST(h_tests, read) {
     fs_unmount(fs);
     score += 20;
 }
-
+*/
 #ifdef GRAD_TESTS
 // <<<<<<< HEAD
 // =======
