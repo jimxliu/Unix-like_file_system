@@ -138,12 +138,11 @@ F17FS_t *fs_format(const char *path){
 				}
 				
 			}
-		block_store_destroy(fs->bs);
-		free(fs);
-		return NULL;	
+			block_store_destroy(fs->bs);
+			free(fs);
+			return NULL;	
 		}
-	free(fs);
-	return NULL;
+		free(fs);
 	}
 	return NULL;
 }
@@ -158,6 +157,14 @@ F17FS_t *fs_format(const char *path){
 ///
 F17FS_t *fs_mount(const char *path){
    if(path == NULL){return NULL;} 
+   F17FS_t *fs = malloc(sizeof(F17FS_t));
+	if(fs){
+		fs->bs=block_store_open(path);
+		if(fs->bs){
+			return fs;
+		}
+		free(fs);
+	}
 	return NULL;   
 }
 
@@ -170,7 +177,9 @@ int fs_unmount(F17FS_t *fs){
    if(fs == NULL){
 		return -1;
 	} 
-	return -1;
+	block_store_destroy(fs->bs);
+	free(fs);
+	return 0;
 }
 
 
