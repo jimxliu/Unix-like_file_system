@@ -89,69 +89,69 @@ TEST(b_tests, file_creation_one) {
     F17FS *fs = fs_format(test_fname);
     ASSERT_NE(fs, nullptr);
 
-    // CREATE_FILE 1
+    // CREATE_FILE 1 - success on creating dir /file
     ASSERT_EQ(fs_create(fs, filenames[0], FS_REGULAR), 0);
     
 
-    // CREATE_FILE 2
+    // CREATE_FILE 2 - success on creating dir /folder
     ASSERT_EQ(fs_create(fs, filenames[1], FS_DIRECTORY), 0);
    
 
-    // CREATE_FILE 3
+    // CREATE_FILE 3 - success on creating file /folder/with_file 
     ASSERT_EQ(fs_create(fs, filenames[2], FS_REGULAR), 0);
     
 
-    // CREATE_FILE 4
+    // CREATE_FILE 4 - success on creating dir /folder/with_folder
     ASSERT_EQ(fs_create(fs, filenames[3], FS_DIRECTORY), 0);
     
 
-    // CREATE_FILE 5
+    // CREATE_FILE 5 - /DOESNOTEXIST
     ASSERT_LT(fs_create(NULL, filenames[4], FS_REGULAR), 0);
     score += 5;
 
-    // CREATE_FILE 6
+    // CREATE_FILE 6 - path is NULL
     ASSERT_LT(fs_create(fs, NULL, FS_REGULAR), 0);
     
 
-    // CREATE_FILE 7
+    // CREATE_FILE 7 - path is invalid ""
     ASSERT_LT(fs_create(fs, "", FS_REGULAR), 0);
     
 
-    // CREATE_FILE 8
+    // CREATE_FILE 8 - "/", but 44 is not a file type (file/dir) 
     ASSERT_LT(fs_create(fs, filenames[13], (file_t) 44), 0);
     
 
-    // CREATE_FILE 9
+    // CREATE_FILE 9 - /DOESNOTEXIST/with_file
     ASSERT_LT(fs_create(fs, filenames[6], FS_REGULAR), 0);
     
 
-    // CREATE_FILE 10
+    // CREATE_FILE 10 - exact 64bytes, but not 
     ASSERT_LT(fs_create(fs, filenames[12], FS_DIRECTORY), 0);
     
 
-    // CREATE_FILE 11
+    // CREATE_FILE 11 - already exist not file
     ASSERT_LT(fs_create(fs, filenames[1], FS_DIRECTORY), 0);
     score += 5;
 
     ASSERT_LT(fs_create(fs, filenames[1], FS_REGULAR), 0);
     
 
-    // CREATE_FILE 12
+    // CREATE_FILE 12 - already exist and not file
     ASSERT_LT(fs_create(fs, filenames[0], FS_REGULAR), 0);
     
 
     ASSERT_LT(fs_create(fs, filenames[0], FS_DIRECTORY), 0);
     
 
-    // CREATE_FILE 13
+    // CREATE_FILE 13 - /file/BAGREQUEST can't create stuff under file
     ASSERT_LT(fs_create(fs, filenames[5], FS_REGULAR), 0);
     
 
-    // CREATE_FILE 14
+    // CREATE_FILE 14 - /folder/with_file/badreq can't create stuff under file
     ASSERT_LT(fs_create(fs, filenames[7], FS_REGULAR), 0);
     
 
-    // CREATE_FILE 15
+    // CREATE_FILE 15 - folder/missing_slash
     ASSERT_LT(fs_create(fs, filenames[8], FS_REGULAR), 0);
     
     // But if we don't support relative paths, is there a reason to force abolute notation?
@@ -159,15 +159,15 @@ TEST(b_tests, file_creation_one) {
     // I suppose relative paths are up to the implementation, since . and .. are just special folder entires
     // but that would mess with the directory content total, BUT extra parsing can work around that.
     // Hmmmm.
-    // CREATE_FILE 16
+    // CREATE_FILE 16 - /folder/new_folder/ "" is an invalid name for a dir
     ASSERT_LT(fs_create(fs, filenames[9], FS_DIRECTORY), 0);
    
 
-    // CREATE_FILE 17
+    // CREATE_FILE 17 - name too long
     ASSERT_LT(fs_create(fs, filenames[10], FS_REGULAR), 0);
     
 
-    // CREATE_FILE 18
+    // CREATE_FILE 18 - more/bad_req missing slash
     ASSERT_LT(fs_create(fs, filenames[11], FS_REGULAR), 0);
     
 
