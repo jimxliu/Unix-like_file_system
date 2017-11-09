@@ -5,6 +5,21 @@
 
 #include <dyn_array.h>
 
+#include <stdio.h>
+#include <time.h>
+#include <stdlib.h>		// for size_t
+#include <inttypes.h>	// for uint16_t
+#include <string.h>
+
+// components of S17FS
+typedef struct inode inode_t;
+typedef struct fileDescriptor fileDescriptor_t;
+typedef struct directoryFile directoryFile_t;
+
+
+#include <dyn_array.h>
+
+
 typedef struct F17FS F17FS_t;
 
 typedef enum { FS_SEEK_SET, FS_SEEK_CUR, FS_SEEK_END } seek_t;

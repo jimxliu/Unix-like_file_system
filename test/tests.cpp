@@ -77,7 +77,7 @@ TEST(a_tests, format_mount_unmount) {
     
 }
 
-/*
+
 TEST(b_tests, file_creation_one) {
     vector<const char *> filenames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -175,7 +175,7 @@ TEST(b_tests, file_creation_one) {
     fs_unmount(fs);
     score += 5;
     
-} */
+} 
 
 /*
 TEST(b_tests, file_creation_two) {

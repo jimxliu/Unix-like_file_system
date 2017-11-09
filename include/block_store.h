@@ -36,6 +36,12 @@ block_store_t *block_store_create(const char *const fname);
 ///// \return a pointer to the new object, NULL on error
 /////
 block_store_t *block_store_open(const char *const fname);
+
+block_store_t *block_store_inode_create(void *const BM_start_pos, void *const data_start_pos);
+
+block_store_t *block_store_fd_create();
+uint8_t * block_store_Data_location(block_store_t *const bs);
+
 ///
 /// Destroys the provided block storage device
 /// This is an idempotent operation, so there is no return value
@@ -43,12 +49,19 @@ block_store_t *block_store_open(const char *const fname);
 ///
 void block_store_destroy(block_store_t *const bs);
 
+void block_store_inode_destroy(block_store_t *const bs);
+void block_store_fd_destroy(block_store_t *const bs);
+
 ///
 /// Searches for a free block, marks it as in use, and returns the block's id
 /// \param bs BS device
 /// \return Allocated block's id, SIZE_MAX on error
 ///
 size_t block_store_allocate(block_store_t *const bs);
+
+size_t block_store_sub_allocate(block_store_t *const bs);
+
+
 
 ///
 /// Attempts to allocate the requested block id
@@ -58,12 +71,20 @@ size_t block_store_allocate(block_store_t *const bs);
 ///
 bool block_store_request(block_store_t *const bs, const size_t block_id);
 
+bool block_store_sub_test(block_store_t *const bs, const size_t block_id);
+
+
+
 ///
 /// Frees the specified block
 /// \param bs BS device
 /// \param block_id The block to free
 ///
 void block_store_release(block_store_t *const bs, const size_t block_id);
+
+void block_store_sub_release(block_store_t *const bs, const size_t block_id);
+
+
 
 ///
 /// Counts the number of blocks marked as in use
@@ -95,6 +116,10 @@ size_t block_store_get_total_blocks();
 ///
 size_t block_store_read(const block_store_t *const bs, const size_t block_id, void *buffer);
 
+size_t block_store_inode_read(const block_store_t *const bs, const size_t block_id, void *buffer);
+size_t block_store_fd_read(const block_store_t *const bs, const size_t block_id, void *buffer);
+
+
 ///
 /// Reads data from the specified buffer and writes it to the designated block
 /// \param bs BS device
@@ -103,6 +128,9 @@ size_t block_store_read(const block_store_t *const bs, const size_t block_id, vo
 /// \return Number of bytes written, 0 on error
 ///
 size_t block_store_write(block_store_t *const bs, const size_t block_id, const void *buffer);
+
+size_t block_store_inode_write(block_store_t *const bs, const size_t block_id, const void *buffer);
+size_t block_store_fd_write(block_store_t *const bs, const size_t block_id, const void *buffer);
 
 ///
 /// Imports BS device from the given file - for grads/bonus

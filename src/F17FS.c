@@ -1,151 +1,106 @@
-#include <block_store.h>
-#include <F17FS.h>
-#include <bitmap.h>
-#include <string.h>
+#include "dyn_array.h"
+#include "bitmap.h"
+#include "block_store.h"
+#include "F17FS.h"
 
-typedef struct superblock {
-	int root_inode; // inode number of root dir
-	int ibm_block_id; 
-	int inode_start; // first block for inodes
-	int inode_blocks; // number of inode blocks
-	int fbm_start; //first block of bitmap
-	int fbm_blocks; // number of bloks used to store the bitmap
-	int alloc_start; // first block managed by the allocator
-	int num_blocks; // number of blocks for allocation	 
-} superblock_t;
+#define BLOCK_STORE_NUM_BLOCKS 65536   // 2^16 blocks.
+#define BLOCK_STORE_AVAIL_BLOCKS 65520 // Last 2^16/2^3/2^9 = 16 blocks consumed by the FBM
+#define BLOCK_SIZE_BYTES 512           // 2^9 BYTES per block
 
-typedef struct inode {
-	file_t type;  // 4 bytes
-	uint32_t size;
-	uint32_t padding1[8]; // biggest chunk, size == 32 bytes
-	uint32_t padding2[2];
-	uint16_t direct_blocks[6];
-	uint16_t indirect_block;
-	uint16_t double_block;
-} inode_t;
 
-typedef struct dentry { // what is the correct way of implementing direcotry blocks?
-	char name[64];
-	char i_num;
-} dentry_t;
+// each inode represents a regular file or a directory file
+struct inode {
+	uint8_t vacantFile;			// this parameter is only for directory, denotes which place in the array is empty and can hold a new file
+	char owner[18];
 
-typedef struct dir_block{
-	dentry_t dentries[7];
-	char length;
-	char padding[56];
-} dir_block_t;
-
-struct F17FS { // typedef-ed in header file
-	block_store_t *bs;
+	char fileType;				// 'r' denotes regular file, 'd' denotes directory file
+	
+	size_t inodeNumber;			// for F17FS, the range should be 0-255
+	size_t fileSize; 			// the unit is in byte	
+	size_t linkCount;
+	
+	// to realize the 16-bit addressing, pointers are acutally block numbers, rather than 'real' pointers.
+	uint16_t directPointer[6];
+	uint16_t indirectPointer[1];
+	uint16_t doubleIndirectPointer;
+		
 };
 
-// initialize inode for file/directory
-inode_t init_inode(F17FS_t *fs,file_t type){
-        inode_t i;
-        if(type==FS_DIRECTORY){
-                i.type = type;
-                i.size = 512;
-                size_t id;
-                id = block_store_allocate(fs->bs);
-                if(id != SIZE_MAX){
-                        i.direct_blocks[0] = id;
-                }
-        } else if(type==FS_REGULAR){
-                i.type = type;
-                i.size = 0;
-        }
-        return i;
-}
-//initialize directory file block
-//\param current_i inode number for current directory
-//\param parent_i inode number for parent directory
-dir_block_t init_db(char current_i, char parent_i){
-	dir_block_t db;
-	strcpy(db.dentries[0].name,".");
-	db.dentries[0].i_num = current_i;
-	strcpy(db.dentries[1].name,"..");
-	db.dentries[1].i_num = parent_i;
-	db.length = 2;
-	return db;
-}
 
-///
+struct fileDescriptor {
+	uint8_t inodeNum;	// the inode # of the fd
+	uint8_t usage; 		// only the lower 3 digits will be used. 1 for direct, 2 for indirect, 4 for dbindirect
+	// locate_block and locate_offset together lcoate the exact byte
+	uint16_t locate_order;		// this term is relative value, rather than a absolute value
+	uint16_t locate_offset;
+};
+
+
+struct directoryFile {
+	char filename[64];
+	uint8_t inodeNumber;
+};
+
+
+struct F17FS {
+	block_store_t * BlockStore_whole;
+	block_store_t * BlockStore_inode;
+	block_store_t * BlockStore_fd;
+};
+
+
 /// Formats (and mounts) an F17FS file for use
 /// \param fname The file to format
 /// \return Mounted F17FS object, NULL on error
 ///
-
-F17FS_t *fs_format(const char *path){
-	if(path != NULL){
-		F17FS_t *fs = malloc(sizeof(F17FS_t));
-		if(fs !=NULL){
-			fs->bs = block_store_create(path);
-			if(fs->bs != NULL){
-				if(block_store_request(fs->bs,0)){
-					superblock_t sb;
-					sb.root_inode = 1;
-					sb.ibm_block_id = 2;
-					sb.inode_start = 3;
-					sb.inode_blocks = 32;
-					sb.fbm_start = 65221;
-					sb.fbm_blocks = 16;
-					sb.alloc_start = 35;
-					sb.num_blocks = 65186;
-					
-					if(block_store_write(fs->bs,1,&sb)!=0){
-        				// allocate blocks for supoerblock, inode table.
-           					int i;
-						bool allocated_inode_table = true;
-						for(i=2; i<35; i++){
-							if(block_store_request(fs->bs,i) == false){
-								allocated_inode_table = false;
-							}	
-						}
-						if(allocated_inode_table){
-						//  maximum size 32 blocks * 512 bytes 
-						//	each inode is 64 bytes	
-						//	memcpy 
-						// create inode bitmap and root inode
-							char i_table[256];
-							i_table[0]=1;
-							i_table[1]=1;	
-							if(block_store_write(fs->bs,2,i_table)){
-	
-							  	inode_t ilist[8];
-								int j;
-								bool write_i_table = true;
-								for(j=3;j<35;j++){
-									if(block_store_write(fs->bs,j,ilist)==0){
-										write_i_table = false;
-									}									
-								}
-								ilist[0] = init_inode(fs,FS_DIRECTORY);
-								if(block_store_write(fs->bs,3,ilist)==0){
-									write_i_table = false;
-								}
-								if(write_i_table){
-								// allocate a data block for root directory entries;
-									uint16_t root_block_id = ilist[0].direct_blocks[0];
-									dir_block_t root_db;
-									root_db = init_db(1,1);
-									if(block_store_write(fs->bs,root_block_id,&root_db)){
-										return fs;
-									}									 	
-								}		
-							}		
-						}	  
-					}  
-				}
-				
-			}
-			block_store_destroy(fs->bs);
-			free(fs);
-			return NULL;	
+F17FS_t *fs_format(const char *path)
+{
+	if(path != NULL && strlen(path) != 0)
+	{
+		F17FS_t * ptr_F17FS = (F17FS_t *)calloc(1, sizeof(F17FS_t));	// get started
+		ptr_F17FS->BlockStore_whole = block_store_create(path);				// pointer to start of a large chunck of memory
+		
+		// reserve the 1st block for bitmaps (this block is cut half and half, for inode bitmap and fd bitmap)
+		size_t bitmap_ID = block_store_allocate(ptr_F17FS->BlockStore_whole);
+		//printf("bitmap_ID = %zu\n", bitmap_ID);
+		// 2nd - 33th block for inodes, 32 blocks in total
+		size_t inode_start_block = block_store_allocate(ptr_F17FS->BlockStore_whole);
+		//printf("inode_start_block = %zu\n", inode_start_block);		
+		for(int i = 0; i < 31; i++)
+		{
+			block_store_allocate(ptr_F17FS->BlockStore_whole);
 		}
-		free(fs);
+		
+		// 34th block for root directory
+		size_t root_data_ID = block_store_allocate(ptr_F17FS->BlockStore_whole);
+		//printf("root_data_ID = %zu\n\n", root_data_ID);				
+		// install inode block store inside the whole block store
+		ptr_F17FS->BlockStore_inode = block_store_inode_create(block_store_Data_location(ptr_F17FS->BlockStore_whole) + bitmap_ID * BLOCK_SIZE_BYTES, block_store_Data_location(ptr_F17FS->BlockStore_whole) + inode_start_block * BLOCK_SIZE_BYTES);
+
+		// the first inode is reserved for root dir
+		block_store_sub_allocate(ptr_F17FS->BlockStore_inode);
+		
+		// update the root inode info.
+		uint8_t root_inode_ID = 0;	// root inode is the first one in the inode table
+		inode_t * root_inode = (inode_t *) calloc(1, sizeof(inode_t));
+		root_inode->vacantFile = 0x00;
+		root_inode->fileType = 'd';								
+		root_inode->inodeNumber = root_inode_ID;
+		root_inode->linkCount = 1;
+		root_inode->directPointer[0] = root_data_ID;
+		block_store_inode_write(ptr_F17FS->BlockStore_inode, root_inode_ID, root_inode);		
+		free(root_inode);
+		
+		// now allocate space for the file descriptors
+		ptr_F17FS->BlockStore_fd = block_store_fd_create();
+
+		return ptr_F17FS;
 	}
-	return NULL;
+	
+	return NULL;	
 }
+
+
 
 
 ///
@@ -155,164 +110,58 @@ F17FS_t *fs_format(const char *path){
 /// \return Mounted F17FS object, NULL on error
 
 ///
-F17FS_t *fs_mount(const char *path){
-   if(path == NULL){return NULL;} 
-   F17FS_t *fs = malloc(sizeof(F17FS_t));
-	if(fs){
-		fs->bs=block_store_open(path);
-		if(fs->bs){
-			return fs;
-		}
-		free(fs);
+F17FS_t *fs_mount(const char *path)
+{
+	if(path != NULL && strlen(path) != 0)
+	{
+		F17FS_t * ptr_F17FS = (F17FS_t *)calloc(1, sizeof(F17FS_t));	// get started
+		ptr_F17FS->BlockStore_whole = block_store_open(path);	// get the chunck of data	
+		
+		// the bitmap block should be the 1st one
+		size_t bitmap_ID = 0;
+
+		// the inode blocks start with the 2nd block, and goes around until the 33th block, 32 in total
+		size_t inode_start_block = 1;
+		
+		// attach the bitmaps to their designated place
+		ptr_F17FS->BlockStore_inode = block_store_inode_create(block_store_Data_location(ptr_F17FS->BlockStore_whole) + bitmap_ID * BLOCK_SIZE_BYTES, block_store_Data_location(ptr_F17FS->BlockStore_whole) + inode_start_block * BLOCK_SIZE_BYTES);
+		
+		// since file descriptors are alloacted outside of the whole blocks, we only can reallocate space for it.
+		ptr_F17FS->BlockStore_fd = block_store_fd_create();
+		
+		return ptr_F17FS;
 	}
-	return NULL;   
+	
+	return NULL;		
 }
+
+
+
 
 ///
 /// Unmounts the given object and frees all related resources
 /// \param fs The F17FS object to unmount
 /// \return 0 on success, < 0 on failure
 ///
-int fs_unmount(F17FS_t *fs){
-   if(fs == NULL){
-		return -1;
-	} 
-	block_store_destroy(fs->bs);
-	free(fs);
-	return 0;
-}
-
-
-///
-/// Creates a new file at the specified location
-///   Directories along the path that do not exist are not created
-/// \param fs The F17FS containing the file
-/// \param path Absolute path to file to create
-/// \param type Type of file to create (regular/directory)
-/// \return 0 on success, < 0 on failure
-///
-int fs_create(F17FS_t *fs, const char *path, file_t type){
-   if(fs == NULL || path == NULL || type == FS_REGULAR ){
-		return -1;
-	} 
-	return -1;   
-}
-
-///
-/// Opens the specified file for use
-///   R/W position is set to the beginning of the file (BOF)
-///   Directories cannot be opened
-/// \param fs The F17FS containing the file
-/// \param path path to the requested file
-/// \return file descriptor to the requested file, < 0 on error
-///
-int fs_open(F17FS_t *fs, const char *path){
-	if(fs == NULL || path == NULL){
-		return -1;
- 	}
+int fs_unmount(F17FS_t *fs)
+{
+	if(fs != NULL)
+	{	
+		block_store_inode_destroy(fs->BlockStore_inode);
+		
+		block_store_destroy(fs->BlockStore_whole);
+		block_store_fd_destroy(fs->BlockStore_fd);
+		
+		free(fs);
+		return 0;
+	}
 	return -1;
 }
 
-///
-/// Closes the given file descriptor
-/// \param fs The F17FS containing the file
-/// \param fd The file to close
-/// \return 0 on success, < 0 on failure
-///
-int fs_close(F17FS_t *fs, int fd){
-  	if(fs == NULL || fd < 0){
-		return -1;
-	} 
-	return -1;
-}
 
-///
-/// Moves the R/W position of the given descriptor to the given location
-///   Files cannot be seeked past EOF or before BOF (beginning of file)
-///   Seeking past EOF will seek to EOF, seeking before BOF will seek to BOF
-/// \param fs The F17FS containing the file
-/// \param fd The descriptor to seek
-/// \param offset Desired offset relative to whence
-/// \param whence Position from which offset is applied
-/// \return offset from BOF, < 0 on error
-///
-off_t fs_seek(F17FS_t *fs, int fd, off_t offset, seek_t whence){
-   if(fs==NULL||fd<0||offset==0||whence<0){
-		return -1;
-	} 
-	return -1;
-}
 
-///
-/// Reads data from the file linked to the given descriptor
-///   Reading past EOF returns data up to EOF
-///   R/W position in incremented by the number of bytes read
-/// \param fs The F17FS containing the file
-/// \param fd The file to read from
-/// \param dst The buffer to write to
-/// \param nbyte The number of bytes to read
-/// \return number of bytes read (< nbyte IFF read passes EOF), < 0 on error
-///
-ssize_t fs_read(F17FS_t *fs, int fd, void *dst, size_t nbyte){
-   if(fs==NULL||fd<0||dst==NULL||nbyte==0){
-		return -1;
-	} 
-	return -1;
-}
 
-///
-/// Writes data from given buffer to the file linked to the descriptor
-///   Writing past EOF extends the file
-///   Writing inside a file overwrites existing data
-///   R/W position in incremented by the number of bytes written
-/// \param fs The F17FS containing the file
-/// \param fd The file to write to
-/// \param dst The buffer to read from
-/// \param nbyte The number of bytes to write
-/// \return number of bytes written (< nbyte IFF out of space), < 0 on error
-///
-ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
-   if(fs==NULL||fd<0||src==NULL||nbyte==0){
-		return -1;
-	} 
-	return -1;
-}
 
-///
-/// Deletes the specified file and closes all open descriptors to the file
-///   Directories can only be removed when empty
-/// \param fs The F17FS containing the file
-/// \param path Absolute path to file to remove
-/// \return 0 on success, < 0 on error
-///
-int fs_remove(F17FS_t *fs, const char *path){
-   if(fs==NULL||path==NULL){return -1;} 
-	return -1;
-}
 
-///
-/// Populates a dyn_array with information about the files in a directory
-///   Array contains up to 15 file_record_t structures
-/// \param fs The F17FS containing the file
-/// \param path Absolute path to the directory to inspect
-/// \return dyn_array of file records, NULL on error
-///
-dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
-   if(fs==NULL||path==NULL){return NULL;} 
-	return NULL;
-}
 
-/// Moves the file from one location to the other
-///   Moving files does not affect open descriptors
-/// \param fs The F17FS containing the file
-/// \param src Absolute path of the file to move
-/// \param dst Absolute path to move the file to
-/// \return 0 on success, < 0 on error
-///
-int fs_move(F17FS_t *fs, const char *src, const char *dst){
-   if(fs==NULL||src==NULL||dst==NULL){
-		return -1;
-	} 
-	return -1;
-}
 
