@@ -53,7 +53,7 @@ int fs_unmount(F17FS *fs);
 */
 TEST(a_tests, format_mount_unmount) {
     const char *test_fname = "a_tests.F17FS";
-    F17FS *fs = NULL;
+    F17FS_t *fs = NULL;
     // FORMAT 2
     ASSERT_EQ(fs_format(NULL), nullptr);
     // FORMAT 3
@@ -82,11 +82,11 @@ TEST(b_tests, file_creation_one) {
     vector<const char *> filenames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
         "/DOESNOTEXIST/with_file", "/folder/with_file/bad_req", "folder/missing_slash", "/folder/new_folder/",
-        "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould and yet was not enough so I had to add "
+        "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould and yet was not enough so I had to add ",
         "more/bad_req",
         "/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobigEXACT!", "/", "/mystery_file"};
     const char *test_fname = "b_tests_normal.F17FS";
-    F17FS *fs = fs_format(test_fname);
+    F17FS_t *fs = fs_format(test_fname);
     ASSERT_NE(fs, nullptr);
 
     // CREATE_FILE 1 - success on creating dir /file

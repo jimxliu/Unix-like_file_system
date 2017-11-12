@@ -15,7 +15,7 @@
 typedef struct inode inode_t;
 typedef struct fileDescriptor fileDescriptor_t;
 typedef struct directoryFile directoryFile_t;
-
+typedef struct directoryBlock directoryBlock_t;
 
 #include <dyn_array.h>
 
