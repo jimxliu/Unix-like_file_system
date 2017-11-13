@@ -177,7 +177,7 @@ TEST(b_tests, file_creation_one) {
     
 } 
 
-/*
+
 TEST(b_tests, file_creation_two) {
     // CREATE_FILE 19 - OUT OF INODES (and test 18 along the way)
     // Gotta make... Uhh... A bunch of files. (255, but we'll need directories to hold them as well)
@@ -263,7 +263,8 @@ TEST(b_tests, file_creation_two) {
     fs_unmount(fs);
     // ... Can't really test 21 yet.
     score += 5;
-} */
+}
+
 /*
     int fs_open(F17FS *fs, const char *path)
     1. Normal, file at root
@@ -284,7 +285,7 @@ TEST(b_tests, file_creation_two) {
     6. Error, invalid fd, positive, out of bounds
     7. Error, invaid fs, negative
 */
-/*
+
 TEST(c_tests, open_close_file) {
     vector<const char *> filenames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -381,7 +382,7 @@ TEST(c_tests, open_close_file) {
     ASSERT_LT(err, 0);
     fs_unmount(fs);
     score += 20;
-}*/
+}
 /*
     int fs_get_dir(const F17FS *const fs, const char *const fname, dir_rec_t *const records)
     1. Normal, root I guess?

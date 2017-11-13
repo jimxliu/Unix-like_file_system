@@ -33,8 +33,8 @@ struct fileDescriptor {
 	uint8_t inodeNum;	// the inode # of the fd
 	uint8_t usage; 		// only the lower 3 digits will be used. 1 for direct, 2 for indirect, 4 for dbindirect
 	// locate_block and locate_offset together lcoate the exact byte
-	uint16_t locate_order;		// this term is relative value, rather than a absolute value
-	uint16_t locate_offset;
+	uint16_t locate_order;		// block_id this term is relative value, rather than a absolute value
+	uint16_t locate_offset; // offset from the first byte (0 byte) in the data block
 };
 
 
@@ -45,7 +45,7 @@ struct directoryFile {
 
 struct directoryBlock {
 	directoryFile_t dentries[7];
-	uint8_t padding[57];
+	char padding[57];
 };
 
 struct F17FS {
@@ -57,8 +57,8 @@ struct F17FS {
 // initialize directoryFile to 0 or "";
 directoryFile_t init_dirFile(void){
 	directoryFile_t df;
-	strcpy(df.filename,"");
-	df.inodeNumber = 0;
+	memset(df.filename,'\0',64);
+	df.inodeNumber = 0x00;
 	return df;
 }
 
@@ -69,6 +69,7 @@ directoryBlock_t init_dirBlock(void){
 	for(; i<7; i++){
 		db.dentries[i] = init_dirFile();
 	}
+	memset(db.padding,'\0',57);
 	return db;
 }
 
@@ -195,6 +196,10 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 	if(fs == NULL || path == NULL || (type != FS_REGULAR && type != FS_DIRECTORY) || strlen(path) <= 1){
 		return -1;
 	}
+	// check if inode table is full
+	if(block_store_get_used_blocks(fs->BlockStore_inode) >= 256){
+		return -14;
+	}
 	// valid path must start with '/'
 	char firstChar = *path;
 	//printf("path: %s\nfirstChar: %c\n",path,firstChar);
@@ -202,10 +207,9 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 	// path cannot end with "/"
 	char lastChar = path[strlen(path)-1];
 	//printf("path: %s\nlastChar: %c\n",path,lastChar);
-	if(lastChar == '/'){return - 2;}
-	// parsing the path int to a dynamic array
-	char dirc[strlen(path)]; // p is the non const copy of path
-	char basec[strlen(path)];
+	if(lastChar == '/'){return -13;}
+	char dirc[strlen(path)+1]; // p is the non const copy of path
+	char basec[strlen(path)+1];
 	strcpy(dirc,path);
 	strcpy(basec,path);
 	char *dirPath = dirname(dirc);
@@ -219,9 +223,9 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 	if(type == FS_DIRECTORY){fileType = 'd';}
 
 	// search and check if the directory name "fn" along the path are valid
-	uint8_t iNum = 0; // inode number of the searched directory inode
+	size_t iNum = 0; // inode number of the searched directory inode
 	inode_t dirInode; // inode of the searched directory
-	directoryBlock_t dirBlock = init_dirBlock(); // file block of the searched directory
+	directoryBlock_t dirBlock; // file block of the searched directory
 	while(fn != NULL){
 		// find the inode
 		if(0 == block_store_inode_read(fs->BlockStore_inode,iNum,&dirInode)){
@@ -236,43 +240,51 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 			return -6;
 		}
 		// search in the entries of the directory to see if the next directory name is found
+		// use bitmap to jump over uninitialzied(unused) entries
+		bitmap_t * dirBitmap = bitmap_overlay(8,&(dirInode.vacantFile));
 		size_t j=0, found = 0;
 		for(; j<7; j++){
-			if((0 == strcmp(dirBlock.dentries[j].filename,fn)) && (0 != dirBlock.dentries[j].inodeNumber)){
+			if(!bitmap_test(dirBitmap,j)){continue;}		
+			if(strncmp(dirBlock.dentries[j].filename,fn,strlen(fn)) == 0 /* && (0 < dirBlock.dentries[j].inodeNumber)*/){
 				inode_t nextInode; // inode whoes filename is fn
 				// check if it is found and is dir  
 				if((0 != block_store_inode_read(fs->BlockStore_inode,dirBlock.dentries[j].inodeNumber,&nextInode)) && (nextInode.fileType == 'd')){
-					iNum = dirBlock.dentries[j].inodeNumber;
+					iNum = nextInode.inodeNumber;
 					found = 1;
 				}
 			}
 		}
+		bitmap_destroy(dirBitmap);
 		// if not found, exit on error
 		if(found == 0){
 			return -7;		
 		}
 		fn = strtok(NULL,"/");
 	}
-	//use iNum as the inode number of the parent dir to search if this directory contains the file/dir to be created
+	// file aready exists?? use iNum as the inode number of the parent dir to search if this directory already contains the file/dir to be created
 	inode_t parentInode; // inode for the parent directory of the destinated file/dir
-	directoryBlock_t parentDir = init_dirBlock(); // directory file block of the parent directory
+	directoryBlock_t parentDir; // directory file block of the parent directory
 	if((0==block_store_inode_read(fs->BlockStore_inode,iNum,&parentInode)) || (0==block_store_read(fs->BlockStore_whole, parentInode.directPointer[0],&parentDir))){
-		return -8;	
+		return -8;
 	}
-	// search if the file to create already exists under parentDir
+	// use bitmap to jump over uninitialized(unused) entries
+	bitmap_t *parentBitmap = bitmap_overlay(8, &(parentInode.vacantFile)); 	
 	int k=0;
 	for(; k<7; k++){
-		if(0 == strcmp(parentDir.dentries[k].filename,baseFileName) && 0 != parentDir.dentries[k].inodeNumber){
+		if(!bitmap_test(parentBitmap,k)){continue;}
+		if(0 == strncmp(parentDir.dentries[k].filename,baseFileName,strlen(baseFileName)) /* && 0 < parentDir.dentries[k].inodeNumber*/){
 			// do not worry about same name but different file type.
 			// files can't have same name, regardless of file type.
 			//inode_t tempInode;
 			//if((0 != block_store_inode_read(fs->BlockStore_inode,parentDir.dentries[k].inodeNumber,&tempInode)) && (tempInode.fileType == fileType)){
 		        // printf("path: %s\nfilename already exists: %s\n",path,parentDir.dentries[k].filename);	
+			bitmap_destroy(parentBitmap);
 			return -9;
 			//}
 		}
 	}
-	
+	bitmap_destroy(parentBitmap);	
+
 	// check if the dir block is full of entries using bitmap
 	// only 7 entries are allowed in a directory, 0 - 6 bit, not including 7
 	size_t available = 7;
@@ -283,14 +295,15 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 		bitmap_destroy(bmp);
 		return -10;
 	} 
-  	// allocate a new inode for the new file and get its inode number
-	uint8_t newInodeID = block_store_sub_allocate(fs->BlockStore_inode);
+  	
+	// allocate a new inode for the new file and get its inode number
+	size_t newInodeID = block_store_sub_allocate(fs->BlockStore_inode);
 	// create a new inode for the file
 	inode_t newInode;
 	newInode.fileType = fileType;
+	newInode.directPointer[0] = block_store_allocate(fs->BlockStore_whole);
 	if(fileType == 'd'){
 		newInode.vacantFile = 0x00;
-		newInode.directPointer[0] = block_store_allocate(fs->BlockStore_whole);
 		directoryBlock_t newDirBlock;
 		block_store_write(fs->BlockStore_whole, newInode.directPointer[0],&newDirBlock);
 		newInode.fileSize = BLOCK_SIZE_BYTES;	
@@ -305,7 +318,7 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 	// add a new entry of filename and inode number to the parentDir 
 	// write it to the block store
 	bitmap_set(bmp, available);
-	if(0 == block_store_inode_write(fs->BlockStore_inode, parentInode.inodeNumber, &parentInode)){
+	if(64 != block_store_inode_write(fs->BlockStore_inode, parentInode.inodeNumber, &parentInode)){
 		bitmap_destroy(bmp);
 		return -11;
 	}
@@ -320,9 +333,89 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 	}
 	
 	bitmap_destroy(bmp);	
+	// printf("dirPath: %s \n baseName: %s\n",dirPath, baseFileName);
 	return 0;   
 }
 
+// search if the absolute path leading to the directory exists
+// \param fs F17FS File system containing the file
+// \param dirPath Absolute path of the directory
+// return the inode number of the directory,  SIZE_MAX on error
+size_t searchPath(F17FS_t *fs, char* dirPath){
+	char *fn = strtok(dirPath,"/");
+	// search and check if the directory name "fn" along the path are valid
+	size_t iNum = 0; // inode number of the searched directory inode
+	inode_t dirInode; // inode of the searched directory
+	directoryBlock_t dirBlock; // file block of the searched directory
+	while(fn != NULL){
+		// find the inode
+		if(0 == block_store_inode_read(fs->BlockStore_inode,iNum,&dirInode)){
+			return SIZE_MAX;
+		}
+		// the inode must be of directory
+		if(dirInode.fileType != 'd'){
+			return SIZE_MAX;
+		}
+		// read the directory file block 	
+		if(0 == block_store_read(fs->BlockStore_whole,dirInode.directPointer[0],&dirBlock)){
+			return SIZE_MAX;
+		}
+		// search in the entries of the directory to see if the next directory name is found
+		// use bitmap to jump over uninitialzied(unused) entries
+		bitmap_t * dirBitmap = bitmap_overlay(8,&(dirInode.vacantFile));
+		size_t j=0, found = 0;
+		for(; j<7; j++){
+			if(!bitmap_test(dirBitmap,j)){continue;}		
+			if(strncmp(dirBlock.dentries[j].filename,fn,strlen(fn)) == 0 /* && (0 < dirBlock.dentries[j].inodeNumber)*/){
+				inode_t nextInode; // inode whoes filename is fn
+				// check if it is found and is dir  
+				if((0 != block_store_inode_read(fs->BlockStore_inode,dirBlock.dentries[j].inodeNumber,&nextInode)) && (nextInode.fileType == 'd')){
+					iNum = nextInode.inodeNumber;
+					found = 1;
+				}
+			}
+		}
+		bitmap_destroy(dirBitmap);
+		// if not found, exit on error
+		if(found == 0){
+			return SIZE_MAX;		
+		}
+		fn = strtok(NULL,"/");
+	}
+	return iNum;
+} 
+
+// check if the file already exists under the designated directory, if so, get the file's inode number
+// \param fs F17FS containing the file
+// \param dirInodeID The inode number of the directory
+// \param filename Name of the file to look for
+// return the file's inode number if the file is already created (exists), or 0 otherwise
+size_t getFileInodeID(F17FS_t *fs, size_t dirInodeID, char *filename){
+	// file aready exists?? use iNum as the inode number of the parent dir to search if this directory already contains the file/dir to be created
+	inode_t parentInode; // inode for the parent directory of the destinated file/dir
+	directoryBlock_t parentDir; // directory file block of the parent directory
+	if((0==block_store_inode_read(fs->BlockStore_inode,dirInodeID,&parentInode)) || (0==block_store_read(fs->BlockStore_whole, parentInode.directPointer[0],&parentDir))){
+		return 0;
+	}
+	// use bitmap to jump over uninitialized(unused) entries
+	bitmap_t *parentBitmap = bitmap_overlay(8, &(parentInode.vacantFile)); 	
+	int k=0;
+	for(; k<7; k++){
+		if(!bitmap_test(parentBitmap,k)){continue;}
+		if(0 == strncmp(parentDir.dentries[k].filename,filename,strlen(filename)) /* && 0 < parentDir.dentries[k].inodeNumber*/){
+			// do not worry about same name but different file type.
+			// files can't have same name, regardless of file type.
+			//inode_t tempInode;
+			//if((0 != block_store_inode_read(fs->BlockStore_inode,parentDir.dentries[k].inodeNumber,&tempInode)) && (tempInode.fileType == fileType)){
+		        // printf("path: %s\nfilename already exists: %s\n",path,parentDir.dentries[k].filename);	
+			bitmap_destroy(parentBitmap);
+			return parentDir.dentries[k].inodeNumber;
+			//}
+		}
+	}
+	bitmap_destroy(parentBitmap);
+	return 0;
+}	
 ///
 /// Opens the specified file for use
 ///   R/W position is set to the beginning of the file (BOF)
@@ -332,11 +425,42 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 /// \return file descriptor to the requested file, < 0 on error
 ///
 int fs_open(F17FS_t *fs, const char *path){
-	if(fs == NULL || path == NULL){
+	if(fs == NULL || path == NULL || strlen(path) <= 1){
 		return -1;
-			 	}
-			 		return -1;
-			 		}
+	}
+	// valid path must start with '/'
+	char firstChar = *path;
+	//printf("path: %s\nfirstChar: %c\n",path,firstChar);
+	if(firstChar != '/'){return -2;}
+	// path cannot end with "/"
+	char lastChar = path[strlen(path)-1];
+	//printf("path: %s\nlastChar: %c\n",path,lastChar);
+	if(lastChar == '/'){return -3;}
+
+	char dirc[strlen(path)+1]; // p is the non const copy of path
+	char basec[strlen(path)+1];
+	strcpy(dirc,path);
+	strcpy(basec,path);
+	char *dirPath = dirname(dirc);
+	char *baseFileName = basename(basec);
+	//printf("path: %s\ndirPath: %s\nbaseFileName: %s\n",path,dirPath,baseFileName);
+	if(strlen(baseFileName)>=64){return -4;}
+
+	size_t dirInodeID = searchPath(fs,dirPath);
+	if(dirInodeID == SIZE_MAX){return -5;} // No such path for the dir containing the requested file
+	size_t fileInodeID = getFileInodeID(fs,dirInodeID,baseFileName);
+	if(fileInodeID == 0){return -6;} // No such file is found
+	inode_t fileInode;
+	if(0 == block_store_inode_read(fs->BlockStore_inode,fileInodeID,&fileInode)){return -7;}
+	size_t fd = block_store_sub_allocate(fs->BlockStore_fd); // file descriptor ID
+	fileDescriptor_t fd_t;
+	fd_t.inodeNum = fileInodeID;	
+	fd_t.usage = 1;
+	fd_t.locate_order = fileInode.directPointer[0];
+	fd_t.locate_offset = 0;
+	if(0 == block_store_fd_write(fs->BlockStore_fd,fd,&fd_t)){return -8;}			
+	return fd;
+}
 
 ///
 /// Closes the given file descriptor
@@ -347,8 +471,10 @@ int fs_open(F17FS_t *fs, const char *path){
 int fs_close(F17FS_t *fs, int fd){
 	if(fs == NULL || fd < 0){
 		return -1;
-	} 
-	return -1;
+	}
+	if(!block_store_sub_test(fs->BlockStore_fd,fd)){return -2;}
+	block_store_sub_release(fs->BlockStore_fd,fd); 
+	return 0;
 }
 
 

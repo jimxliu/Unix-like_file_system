@@ -299,7 +299,7 @@ size_t block_store_get_free_blocks(const block_store_t *const bs) {
         size_t numZero = 0;
         numSet = bitmap_total_set(bs->fbm); // count all bits set
         //bitmap_destroy(bs->fbm); // destruct and destroy bitmap object
-        numZero = BLOCK_STORE_AVAIL_BLOCKS - numSet; // count zero bits
+        numZero = BLOCK_STORE_NUM_BLOCKS - numSet; // count zero bits
         return numZero;
     }
     return SIZE_MAX;
@@ -311,7 +311,7 @@ size_t block_store_get_free_blocks(const block_store_t *const bs) {
 /// \return Total blocks
 ///
 size_t block_store_get_total_blocks() {
-    return BLOCK_STORE_AVAIL_BLOCKS;
+    return BLOCK_STORE_NUM_BLOCKS;
 }
 
 ///
