@@ -451,14 +451,15 @@ int fs_open(F17FS_t *fs, const char *path){
 	size_t fileInodeID = getFileInodeID(fs,dirInodeID,baseFileName);
 	if(fileInodeID == 0){return -6;} // No such file is found
 	inode_t fileInode;
-	if(0 == block_store_inode_read(fs->BlockStore_inode,fileInodeID,&fileInode)){return -7;}
+	if(0 == block_store_inode_read(fs->BlockStore_inode,fileInodeID,&fileInode)){return -7;} // get the inode object of the file
+	if('d'==fileInode.fileType){return -8;} // file can't be directory
 	size_t fd = block_store_sub_allocate(fs->BlockStore_fd); // file descriptor ID
 	fileDescriptor_t fd_t;
 	fd_t.inodeNum = fileInodeID;	
 	fd_t.usage = 1;
 	fd_t.locate_order = fileInode.directPointer[0];
 	fd_t.locate_offset = 0;
-	if(0 == block_store_fd_write(fs->BlockStore_fd,fd,&fd_t)){return -8;}			
+	if(0 == block_store_fd_write(fs->BlockStore_fd,fd,&fd_t)){return -9;}			
 	return fd;
 }
 
