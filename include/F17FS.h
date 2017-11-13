@@ -59,6 +59,18 @@ F17FS_t *fs_mount(const char *path);
 ///
 int fs_unmount(F17FS_t *fs);
 
+// search if the absolute path leading to the directory exists
+// \param fs F17FS File system containing the file
+// \param dirPath Absolute path of the directory
+// return the inode number of the directory,  SIZE_MAX on error
+size_t searchPath(F17FS_t *fs, char *dirPath);
+
+// check if the file already exists under the designated directory, if so, get the file's inode number
+// \param fs F17FS containing the file
+// \param dirInodeID The inode number of the directory
+// \param filename Name of the file to look for
+// return the file's inode number if the file is already created (exists), or 0 otherwise
+size_t getFileInodeID(F17FS_t *fs, size_t dirInodeID, char *filename);
 
 ///
 /// Creates a new file at the specified location
