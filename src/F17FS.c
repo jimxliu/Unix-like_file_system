@@ -184,6 +184,87 @@ int fs_unmount(F17FS_t *fs)
 	return -1;
 }
 
+// search if the absolute path leading to the directory exists
+// \param fs F17FS File system containing the file
+// \param dirPath Absolute path of the directory
+// return the inode number of the directory,  SIZE_MAX on error
+size_t searchPath(F17FS_t *fs, char* dirPath){
+	char *fn = strtok(dirPath,"/");
+	// search and check if the directory name "fn" along the path are valid
+	size_t iNum = 0; // inode number of the searched directory inode
+	inode_t dirInode; // inode of the searched directory
+	directoryBlock_t dirBlock; // file block of the searched directory
+	while(fn != NULL){
+		// find the inode
+		if(0 == block_store_inode_read(fs->BlockStore_inode,iNum,&dirInode)){
+			return SIZE_MAX;
+		}
+		// the inode must be of directory
+		if(dirInode.fileType != 'd'){
+			return SIZE_MAX;
+		}
+		// read the directory file block 	
+		if(0 == block_store_read(fs->BlockStore_whole,dirInode.directPointer[0],&dirBlock)){
+			return SIZE_MAX;
+		}
+		// search in the entries of the directory to see if the next directory name is found
+		// use bitmap to jump over uninitialzied(unused) entries
+		bitmap_t * dirBitmap = bitmap_overlay(8,&(dirInode.vacantFile));
+		size_t j=0, found = 0;
+		for(; j<7; j++){
+			if(!bitmap_test(dirBitmap,j)){continue;}		
+			if(strncmp(dirBlock.dentries[j].filename,fn,strlen(fn)) == 0 /* && (0 < dirBlock.dentries[j].inodeNumber)*/){
+				inode_t nextInode; // inode whoes filename is fn
+				// check if it is found and is dir  
+				if((0 != block_store_inode_read(fs->BlockStore_inode,dirBlock.dentries[j].inodeNumber,&nextInode)) && (nextInode.fileType == 'd')){
+					iNum = nextInode.inodeNumber;
+					found = 1;
+				}
+			}
+		}
+		bitmap_destroy(dirBitmap);
+		// if not found, exit on error
+		if(found == 0){
+			return SIZE_MAX;		
+		}
+		fn = strtok(NULL,"/");
+	}
+	return iNum;
+} 
+
+// check if the file already exists under the designated directory, if so, get the file's inode number
+// \param fs F17FS containing the file
+// \param dirInodeID The inode number of the directory
+// \param filename Name of the file to look for
+// return the file's inode number if the file is already created (exists), or 0 otherwise
+size_t getFileInodeID(F17FS_t *fs, size_t dirInodeID, char *filename){
+	// file aready exists?? use iNum as the inode number of the parent dir to search if this directory already contains the file/dir to be created
+	inode_t parentInode; // inode for the parent directory of the destinated file/dir
+	directoryBlock_t parentDir; // directory file block of the parent directory
+	if((0==block_store_inode_read(fs->BlockStore_inode,dirInodeID,&parentInode)) || (0==block_store_read(fs->BlockStore_whole, parentInode.directPointer[0],&parentDir))){
+		return 0;
+	}
+	// use bitmap to jump over uninitialized(unused) entries
+	bitmap_t *parentBitmap = bitmap_overlay(8, &(parentInode.vacantFile)); 	
+	int k=0;
+	for(; k<7; k++){
+		if(bitmap_test(parentBitmap,k)){
+			if(0 == strncmp(parentDir.dentries[k].filename,filename,strlen(filename)) /* && 0 < parentDir.dentries[k].inodeNumber*/){
+				// DO NOT worry about same name but different file type.
+				// files can't have same name, regardless of file type.
+				//inode_t tempInode;
+				//if((0 != block_store_inode_read(fs->BlockStore_inode,parentDir.dentries[k].inodeNumber,&tempInode)) && (tempInode.fileType == fileType)){
+		        	// printf("path: %s\nfilename already exists: %s\n",path,parentDir.dentries[k].filename);	
+				bitmap_destroy(parentBitmap);
+				return parentDir.dentries[k].inodeNumber;
+				//}
+			}
+		}
+	}
+	bitmap_destroy(parentBitmap);
+	return 0;
+}	
+
 ///
 /// Creates a new file at the specified location
 ///   Directories along the path that do not exist are not created
@@ -285,86 +366,6 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 	return 0;   
 }
 
-// search if the absolute path leading to the directory exists
-// \param fs F17FS File system containing the file
-// \param dirPath Absolute path of the directory
-// return the inode number of the directory,  SIZE_MAX on error
-size_t searchPath(F17FS_t *fs, char* dirPath){
-	char *fn = strtok(dirPath,"/");
-	// search and check if the directory name "fn" along the path are valid
-	size_t iNum = 0; // inode number of the searched directory inode
-	inode_t dirInode; // inode of the searched directory
-	directoryBlock_t dirBlock; // file block of the searched directory
-	while(fn != NULL){
-		// find the inode
-		if(0 == block_store_inode_read(fs->BlockStore_inode,iNum,&dirInode)){
-			return SIZE_MAX;
-		}
-		// the inode must be of directory
-		if(dirInode.fileType != 'd'){
-			return SIZE_MAX;
-		}
-		// read the directory file block 	
-		if(0 == block_store_read(fs->BlockStore_whole,dirInode.directPointer[0],&dirBlock)){
-			return SIZE_MAX;
-		}
-		// search in the entries of the directory to see if the next directory name is found
-		// use bitmap to jump over uninitialzied(unused) entries
-		bitmap_t * dirBitmap = bitmap_overlay(8,&(dirInode.vacantFile));
-		size_t j=0, found = 0;
-		for(; j<7; j++){
-			if(!bitmap_test(dirBitmap,j)){continue;}		
-			if(strncmp(dirBlock.dentries[j].filename,fn,strlen(fn)) == 0 /* && (0 < dirBlock.dentries[j].inodeNumber)*/){
-				inode_t nextInode; // inode whoes filename is fn
-				// check if it is found and is dir  
-				if((0 != block_store_inode_read(fs->BlockStore_inode,dirBlock.dentries[j].inodeNumber,&nextInode)) && (nextInode.fileType == 'd')){
-					iNum = nextInode.inodeNumber;
-					found = 1;
-				}
-			}
-		}
-		bitmap_destroy(dirBitmap);
-		// if not found, exit on error
-		if(found == 0){
-			return SIZE_MAX;		
-		}
-		fn = strtok(NULL,"/");
-	}
-	return iNum;
-} 
-
-// check if the file already exists under the designated directory, if so, get the file's inode number
-// \param fs F17FS containing the file
-// \param dirInodeID The inode number of the directory
-// \param filename Name of the file to look for
-// return the file's inode number if the file is already created (exists), or 0 otherwise
-size_t getFileInodeID(F17FS_t *fs, size_t dirInodeID, char *filename){
-	// file aready exists?? use iNum as the inode number of the parent dir to search if this directory already contains the file/dir to be created
-	inode_t parentInode; // inode for the parent directory of the destinated file/dir
-	directoryBlock_t parentDir; // directory file block of the parent directory
-	if((0==block_store_inode_read(fs->BlockStore_inode,dirInodeID,&parentInode)) || (0==block_store_read(fs->BlockStore_whole, parentInode.directPointer[0],&parentDir))){
-		return 0;
-	}
-	// use bitmap to jump over uninitialized(unused) entries
-	bitmap_t *parentBitmap = bitmap_overlay(8, &(parentInode.vacantFile)); 	
-	int k=0;
-	for(; k<7; k++){
-		if(bitmap_test(parentBitmap,k)){
-			if(0 == strncmp(parentDir.dentries[k].filename,filename,strlen(filename)) /* && 0 < parentDir.dentries[k].inodeNumber*/){
-				// DO NOT worry about same name but different file type.
-				// files can't have same name, regardless of file type.
-				//inode_t tempInode;
-				//if((0 != block_store_inode_read(fs->BlockStore_inode,parentDir.dentries[k].inodeNumber,&tempInode)) && (tempInode.fileType == fileType)){
-		        	// printf("path: %s\nfilename already exists: %s\n",path,parentDir.dentries[k].filename);	
-				bitmap_destroy(parentBitmap);
-				return parentDir.dentries[k].inodeNumber;
-				//}
-			}
-		}
-	}
-	bitmap_destroy(parentBitmap);
-	return 0;
-}	
 ///
 /// Opens the specified file for use
 ///   R/W position is set to the beginning of the file (BOF)
