@@ -393,7 +393,7 @@ TEST(c_tests, open_close_file) {
     6. Error, NULL fs
     7. Error, not a directory
 */
-/*
+
 TEST(f_tests, get_dir) {
     vector<const char *> fnames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -450,7 +450,7 @@ TEST(f_tests, get_dir) {
     ASSERT_EQ(record_results, nullptr);
     fs_unmount(fs);
     score += 10;
-}*/
+}
 /*
     ssize_t fs_write(F17FS *fs, int fd, const void *src, size_t nbyte);
     1. Normal, 0 size to < 1 block

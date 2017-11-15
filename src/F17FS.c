@@ -349,16 +349,17 @@ size_t getFileInodeID(F17FS_t *fs, size_t dirInodeID, char *filename){
 	bitmap_t *parentBitmap = bitmap_overlay(8, &(parentInode.vacantFile)); 	
 	int k=0;
 	for(; k<7; k++){
-		if(!bitmap_test(parentBitmap,k)){continue;}
-		if(0 == strncmp(parentDir.dentries[k].filename,filename,strlen(filename)) /* && 0 < parentDir.dentries[k].inodeNumber*/){
-			// do not worry about same name but different file type.
-			// files can't have same name, regardless of file type.
-			//inode_t tempInode;
-			//if((0 != block_store_inode_read(fs->BlockStore_inode,parentDir.dentries[k].inodeNumber,&tempInode)) && (tempInode.fileType == fileType)){
-		        // printf("path: %s\nfilename already exists: %s\n",path,parentDir.dentries[k].filename);	
-			bitmap_destroy(parentBitmap);
-			return parentDir.dentries[k].inodeNumber;
-			//}
+		if(bitmap_test(parentBitmap,k)){
+			if(0 == strncmp(parentDir.dentries[k].filename,filename,strlen(filename)) /* && 0 < parentDir.dentries[k].inodeNumber*/){
+				// DO NOT worry about same name but different file type.
+				// files can't have same name, regardless of file type.
+				//inode_t tempInode;
+				//if((0 != block_store_inode_read(fs->BlockStore_inode,parentDir.dentries[k].inodeNumber,&tempInode)) && (tempInode.fileType == fileType)){
+		        	// printf("path: %s\nfilename already exists: %s\n",path,parentDir.dentries[k].filename);	
+				bitmap_destroy(parentBitmap);
+				return parentDir.dentries[k].inodeNumber;
+				//}
+			}
 		}
 	}
 	bitmap_destroy(parentBitmap);
@@ -426,7 +427,85 @@ int fs_close(F17FS_t *fs, int fd){
 	return 0;
 }
 
+///
+/// Populates a dyn_array with information about the files in a directory
+///   Array contains up to 15 file_record_t structures
+/// \param fs The F17FS containing the file
+/// \param path Absolute path to the directory to inspect
+/// \return dyn_array of file records, NULL on error
+///
+dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
+	if(fs == NULL || path == NULL || strlen(path) < 1){
+		return NULL;
+	}
 
+	// validate the pathname
+	// valid path must start with '/'
+	char firstChar = *path;
+	if(firstChar != '/'){return NULL;}
+	// parse the pathname
+	char dirc[strlen(path)+1]; 
+	char basec[strlen(path)+1];
+	strcpy(dirc,path);
+	strcpy(basec,path);
+	char *dirPath = dirname(dirc);
+	char *baseFileName = basename(basec);
+
+
+	size_t dirInodeID;
+	// if the directory is the root
+	if(strlen(path)==1 && 0==strncmp(path,"/",1)){
+		dirInodeID = 0; // set the inode number to 0 for root
+	} else{ // other wise, trace down from the root to look for the inode
+		// get the inode number of the target directory
+		size_t parentInodeID;
+		if((parentInodeID=searchPath(fs,dirPath)) == SIZE_MAX) {return NULL;}
+		dirInodeID = getFileInodeID(fs,parentInodeID,baseFileName);
+		if(dirInodeID == 0){return NULL;} // No such file is found, if it is not root, the inode number cannot be 0
+	}
+	// get the inode block and data block of the directory
+	inode_t dirInode;
+	directoryBlock_t dirBlock;
+	if((0 == block_store_inode_read(fs->BlockStore_inode, dirInodeID, &dirInode)) || (0 == block_store_read(fs->BlockStore_whole,dirInode.directPointer[0],&dirBlock))){ return NULL;}	
+	if('d'!=dirInode.fileType){return NULL;} // Should be directory
+	
+	// create a dynamic array, data object size is sizeof(file_record_t)
+	dyn_array_t *list = dyn_array_create(15,sizeof(file_record_t),NULL);
+	if(list == NULL){
+		return NULL;
+	}
+	// loop through all the allocated entries in the data block in form of directoryBlock_t structure
+	// use bitmap to skip unused/uninitialized entires
+	bitmap_t * bmp = bitmap_overlay(8,&(dirInode.vacantFile));
+	int k = 0;
+	for(;k<7;k++){
+		if(bitmap_test(bmp,k)){
+			// add the entry name to the array 
+			file_record_t record;
+			strncpy(record.name,dirBlock.dentries[k].filename,FS_FNAME_MAX);
+			inode_t fileInode;
+			if(0 == block_store_inode_read(fs->BlockStore_inode,dirBlock.dentries[k].inodeNumber,&fileInode)){
+				bitmap_destroy(bmp);
+				dyn_array_destroy(list);
+				return NULL;
+			}else {
+				if(fileInode.fileType == 'r'){
+					record.type = FS_REGULAR;
+				} else {
+					record.type = FS_DIRECTORY;
+				}
+				
+			}
+			if(!dyn_array_push_back(list,&record)){
+				bitmap_destroy(bmp);
+				dyn_array_destroy(list);
+				return NULL;
+			}
+			//printf("record name: %s\n",record.name);	
+		}	
+	}	
+	return list;
+}
 
 
 
