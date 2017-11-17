@@ -8,7 +8,13 @@
 #define BLOCK_STORE_NUM_BLOCKS 65536   // 2^16 blocks.
 #define BLOCK_STORE_AVAIL_BLOCKS 65520 // Last 2^16/2^3/2^9 = 16 blocks consumed by the FBM
 #define BLOCK_SIZE_BYTES 512           // 2^9 BYTES per block
-
+// direct each: 512, total size: 512 * 6 = 3072
+// indirect, index block: 512/2 = 256 addresses, total size: 512 * 256 = 131072
+// double indirect, first index block: 256 addresses, second index block total: 256*256 = 65536, total: 65536 * 512 = 33554432  
+#define DIRECT_TOTAL_BYTES 3072	
+#define SINGLE_INDIRECT_TOTAL_BYTES 131072
+#define DOUBLE_INDIRECT_TOTAL_BYTES 33554432
+#define MAX_FILE_SIZE 33688576
 
 // each inode represents a regular file or a directory file
 struct inode {
@@ -504,8 +510,39 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
 			}
 			//printf("record name: %s\n",record.name);	
 		}	
-	}	
+	}
+	bitmap_destroy(bmp);	
 	return list;
+}
+
+///
+/// Writes data from given buffer to the file linked to the descriptor
+///   Writing past EOF extends the file
+///   Writing inside a file overwrites existing data
+///   R/W position in incremented by the number of bytes written
+/// \param fs The F17FS containing the file/// \param fd The file to write to
+/// \param dst The buffer to read from
+/// \param nbyte The number of bytes to write
+/// \return number of bytes written (< nbyte IF out of space), < 0 on error
+///
+ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
+	// check if fs,fd,src are valid
+	if(fs==NULL || fd < 0 || !block_store_sub_test(fs->BlockStore_fd,fd) || src == NULL){return -1;}
+	// if 0 byte is needed to write
+	if(nbyte==0){return 0;}
+	// get the current size of the file
+		
+	// make a macro to calculate number of direct, indirect, or double indirect data blocks needed to be written to
+	
+	// write a method allocate indirect and double indirect data blocks
+	// calculate if direct data blocks are enough to contain the bytes of data written
+	// if they can't, how many indirect data blocks are needed
+	// if both direct and indirect blocks won't work, try to see how many double indirect data blocks are needed.
+	// count respectively the total size of direct, indirect and double indirect data blocks
+
+	
+		
+	return nbyte; // need to change the line when it is done 
 }
 
 
