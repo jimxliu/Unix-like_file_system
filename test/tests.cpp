@@ -553,7 +553,7 @@ TEST(d_tests, write_file_simple) {
     fs_unmount(fs);
     
 }
-/*
+
 TEST(d_tests, write_file_fill) {
     // Still gotta test write 6,7,8,9
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
@@ -635,7 +635,7 @@ TEST(d_tests, write_file_fill) {
     fs_unmount(fs);
     score += 15;
 }
-*/
+
 /* 0-33 34-65519 65520-65535
     int fs_remove(F17FS *fs, const char *path);
     1. Normal, file at root
