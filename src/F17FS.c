@@ -4,6 +4,7 @@
 #include "F17FS.h"
 #include "string.h"
 #include "libgen.h"
+#include "math.h"
 
 #define BLOCK_STORE_NUM_BLOCKS 65536   // 2^16 blocks.
 #define BLOCK_STORE_AVAIL_BLOCKS 65520 // Last 2^16/2^3/2^9 = 16 blocks consumed by the FBM
@@ -29,7 +30,7 @@ struct inode {
 	
 	// to realize the 16-bit addressing, pointers are acutally block numbers, rather than 'real' pointers.
 	uint16_t directPointer[6];
-	uint16_t indirectPointer[1];
+	uint16_t indirectPointer;
 	uint16_t doubleIndirectPointer;
 		
 };
@@ -104,6 +105,7 @@ F17FS_t *fs_format(const char *path)
 		// 34th block for root directory
 		size_t root_data_ID = block_store_allocate(ptr_F17FS->BlockStore_whole);
 		//printf("root_data_ID = %zu\n\n", root_data_ID);				
+		// install inode block store inside the whole block store
 		// install inode block store inside the whole block store
 		ptr_F17FS->BlockStore_inode = block_store_inode_create(block_store_Data_location(ptr_F17FS->BlockStore_whole) + bitmap_ID * BLOCK_SIZE_BYTES, block_store_Data_location(ptr_F17FS->BlockStore_whole) + inode_start_block * BLOCK_SIZE_BYTES);
 
@@ -413,7 +415,7 @@ int fs_open(F17FS_t *fs, const char *path){
 	fileDescriptor_t fd_t;
 	fd_t.inodeNum = fileInodeID;	
 	fd_t.usage = 1;
-	fd_t.locate_order = fileInode.directPointer[0];
+	fd_t.locate_order = 0;
 	fd_t.locate_offset = 0;
 	if(0 == block_store_fd_write(fs->BlockStore_fd,fd,&fd_t)){return -9;}			
 	return fd;
@@ -491,7 +493,6 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
 			file_record_t record;
 			strncpy(record.name,dirBlock.dentries[k].filename,FS_FNAME_MAX);
 			inode_t fileInode;
-			if(0 == block_store_inode_read(fs->BlockStore_inode,dirBlock.dentries[k].inodeNumber,&fileInode)){
 				bitmap_destroy(bmp);
 				dyn_array_destroy(list);
 				return NULL;
@@ -515,11 +516,75 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
 	return list;
 }
 
-///
+// allocate and get the data block id
+// \param fs The F17FS Filesystem
+// \param fd_t The fileDescriptor object
+// \param fileInode Inode of the file
+// return the data block id, or <0 on error
+ssize_t get_data_block_id(F17FS_t *fs, inode_t *ino, fileDescriptor_t *fd_t){
+	if(fs==NULL || ino==NULL || fd_t==NULL){
+		return -1;
+	} else {
+		size_t usedBlockCount = ceil(ino->fileSize/512);//get the blocks used by this file
+		size_t count = fd_t->locate_order; // get the number of the block that will be used
+	
+		if(fd_t->usage == 1){ // the block to be used is pointed by directPointer
+			if(count>=usedBlockCount){ // if the block hasnt been allocated
+				ino->directPointer[count] = block_store_allocate(fs->BlockStore_whole);	
+			}
+			return ino->directPointer[count];
+		} else if(fd_t == 2){ // the block is pointed by indirectPointer
+			uint16_t table[256]; // the index table of the indirectPointer
+			memset(table,0x0000,256);
+			if(count>=usedBlockCount){ // the block hasnt been allocated
+				if(count==0){ // the block is the first indirectPointer pointed block
+					// allocate a block for the index table pointed by the indirectPointer in the inode 
+					ino->indirectPointer = block_store_allocate(fs->BlockStore_whole);
+				} 
+				block_store_read(fs->BlockStore_whole,ino->indirectPointer,table);
+				table[count] = block_store_allocate(fs->BlockStore_whole); // allocate the data block pointed by an entry in the index table
+				block_store_write(fs->BlockStore_whole,ino->indirectPointer,table); // update the index table
+			} else { // the block is already allocated 
+				block_store_read(fs->BlockStore_whole,ino->indirectPointer,table);
+			}
+			return table[count];	
+		} else { // the block is pointed by a doubleIndiretPointer
+			uint16_t outerIndexTable[256];
+			memset(outerIndexTable,0x0000,256);
+			uint16_t innerIndexTable[256];
+			memset(innerIndexTable,0x0000,256);
+			if(count>=usedBlockCount){ //the block hasnt been allocated yet
+				if(count==0){ // when the new block is the first entry of the first innerIndexTable of the outerIndexTable pointed by doubleIndirectPointer
+					ino->doubleIndirectPointer = block_store_allocate(fs->BlockStore_whole);
+					outerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
+					block_store_write(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
+					innerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
+					block_store_write(fs->BlockStore_whole,outerIndexTable[0],innerIndexTable);
+				}else if(count%256==0){ // when the new block is the first entry of a new innerIndexTable
+					block_store_read(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);
+					outerIndexTable[count/256] = block_store_allocate(fs->BlockStore_whole);
+					block_store_write(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
+					innerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
+					block_store_write(fs->BlockStore_whole,outerIndexTable[count/256],innerIndexTable);	
+				}else{// when the new block is in the same innerIndexTable
+					block_store_read(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
+					block_store_read(fs->BlockStore_whole,outerIndexTable[count/256],innerIndexTable);
+					innerIndexTable[count%256] = block_store_allocate(fs->BlockStore_whole);	
+					block_store_write(fs->BlockStore_whole,outerIndexTable[count/256],innerIndexTable);
+				}
+			}else{ // the block is already allocated
+				block_store_read(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
+				block_store_read(fs->BlockStore_whole,outerIndexTable[count/256],innerIndexTable);
+			}
+			return innerIndexTable[count%256];
+		}		
+	} 
+}
+
 /// Writes data from given buffer to the file linked to the descriptor
 ///   Writing past EOF extends the file
 ///   Writing inside a file overwrites existing data
-///   R/W position in incremented by the number of bytes written
+///   R/W position is incremented by the number of bytes written
 /// \param fs The F17FS containing the file/// \param fd The file to write to
 /// \param dst The buffer to read from
 /// \param nbyte The number of bytes to write
@@ -527,22 +592,59 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
 ///
 ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 	// check if fs,fd,src are valid
-	if(fs==NULL || fd < 0 || !block_store_sub_test(fs->BlockStore_fd,fd) || src == NULL){return -1;}
-	// if 0 byte is needed to write
-	if(nbyte==0){return 0;}
-	// get the current size of the file
-		
-	// make a macro to calculate number of direct, indirect, or double indirect data blocks needed to be written to
+	if(fs!=NULL || fd < 0 || !block_store_sub_test(fs->BlockStore_fd,fd) || src == NULL){
+		return -1;
+	} else {
+		// if 0 byte is needed to write
+		if(nbyte==0){
+			return 0;
+		} else {
+			// get fd's corresponding fileDescriptor structure 
+			// get inode number, usage, order and offset
+			fileDescriptor_t fd_t;
+			if(0==block_store_fd_read(fs->BlockStore_fd,fd,&fd_t)){
+				return -2;
+			} else {
+				// calculate number of data blocks needed to store the src data
+				size_t blocksNeeded = ceil((nbyte+fd_t.locate_offset)/512);
+				// get the number of available blocks 
+				size_t freeBlocks = block_store_get_free_blocks(fs->BlockStore_whole);
+				if(freeBlocks == SIZE_MAX){
+					return -3;
+				} else {
+					if(blocksNeeded>freeBlocks){
+					blocksNeeded = freeBlocks;
+					}
+					inode_t fileInode;
+					if(0==block_store_inode_read(fs->BlockStore_inode,fd_t.inodeNum,&fileInode)){
+						return -4;
+					} else {
+						size_t writtenBytes = 0;
+						// write data to the first block starting where the current fd pointer is at
+						int i=0;	
+						for(;i<blocksNeeded;i++){
+							if(i==0&&fd_t.offset>0){
+								ssize_t blockID = get_data_block_id(fs,&fileInode,&fd_t);
+								if(blockID>=0){
+									if(block_store_append(fs->BlockStore_whole,))
+								}else{
+									return -5;
+								}	
+							}	
+						}	
+						
+					}							
+
+				}	
+			}
+		}
 	
 	// write a method allocate indirect and double indirect data blocks
 	// calculate if direct data blocks are enough to contain the bytes of data written
 	// if they can't, how many indirect data blocks are needed
 	// if both direct and indirect blocks won't work, try to see how many double indirect data blocks are needed.
-	// count respectively the total size of direct, indirect and double indirect data blocks
 
-	
-		
-	return nbyte; // need to change the line when it is done 
+	}
 }
 
 

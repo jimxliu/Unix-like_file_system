@@ -362,6 +362,14 @@ size_t block_store_write(block_store_t *const bs, const size_t block_id, const v
     return 0;
 }
 
+// append data to existing data in the same block
+size_t block_store_append(block_store_t *const bs, const size_t block_id, off_t offset, const void *buffer){
+    if (bs && buffer && offset < BLOCK_SIZE_BYTES  && block_id< BLOCK_STORE_AVAIL_BLOCKS) {
+        memcpy(bs->data_blocks+block_id*BLOCK_SIZE_BYTES+offset, buffer, BLOCK_SIZE_BYTES-offset);
+        return BLOCK_SIZE_BYTES;
+    }
+    return 0;
+}
 
 size_t block_store_inode_write(block_store_t *const bs, const size_t block_id, const void *buffer) {
     if (bs && buffer && block_id < 256) {

@@ -129,6 +129,9 @@ size_t block_store_fd_read(const block_store_t *const bs, const size_t block_id,
 ///
 size_t block_store_write(block_store_t *const bs, const size_t block_id, const void *buffer);
 
+// append data to existing data in the same block
+size_t block_store_append(block_store_t *const bs, const size_t block_id, off_t offset, const void *buffer);
+
 size_t block_store_inode_write(block_store_t *const bs, const size_t block_id, const void *buffer);
 size_t block_store_fd_write(block_store_t *const bs, const size_t block_id, const void *buffer);
 

@@ -467,7 +467,7 @@ TEST(f_tests, get_dir) {
     12. Error, nbyte 0 (not an error...? Bad parameters? Hmm.)
     13. Error, bad fd
 */
-/*
+
 TEST(d_tests, write_file_simple) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "d_tests_normal.F17FS";
@@ -552,7 +552,7 @@ TEST(d_tests, write_file_simple) {
     // And I'm going to unmount without closing.
     fs_unmount(fs);
     
-}*/
+}
 /*
 TEST(d_tests, write_file_fill) {
     // Still gotta test write 6,7,8,9
