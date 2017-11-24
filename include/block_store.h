@@ -71,6 +71,14 @@ size_t block_store_sub_allocate(block_store_t *const bs);
 ///
 bool block_store_request(block_store_t *const bs, const size_t block_id);
 
+///
+///-- Test if the requested block id is allocated
+/// \param bs the block store object
+/// \block_id the requested block identifier
+/// \return boolean indicating if the block is allocated
+///
+bool block_store_test(block_store_t *const bs, const size_t block_id);
+
 bool block_store_sub_test(block_store_t *const bs, const size_t block_id);
 
 

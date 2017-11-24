@@ -345,14 +345,20 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 	// create a new inode for the file
 	inode_t newInode;
 	newInode.fileType = fileType;
-	newInode.directPointer[0] = block_store_allocate(fs->BlockStore_whole);
-	if(fileType == 'd'){
+	if(fileType == 'd'){ // If create a directory
 		newInode.vacantFile = 0x00;
 		directoryBlock_t newDirBlock;
+		if(SIZE_MAX == block_store_allocate(fs->BlockStore_whole)){
+			return -12;
+		} 
+		// allocate a block for the directory entries
+		newInode.directPointer[0] = block_store_allocate(fs->BlockStore_whole);
 		block_store_write(fs->BlockStore_whole, newInode.directPointer[0],&newDirBlock);
 		newInode.fileSize = BLOCK_SIZE_BYTES;	
-	} else {
+	} else { // If to create a file
 		newInode.fileSize = 0;
+		// Not need to allocate an empty block for the file
+		
 	}
 	newInode.inodeNumber = newInodeID;
 	newInode.linkCount = 1;
@@ -543,7 +549,7 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 						ino->directPointer[order] = block_store_allocate(fs->BlockStore_whole);	
 					} else {return -1;}	
 				}
-				//printf("direct block address: %d\n",ino->directPointer[count]);
+				//printf("direct block address: %lu\n",order);
 				return ino->directPointer[order]; // return the pointer, i.e., the address of the data block to write
 			} else if(fd_t->usage == 2){ // the block is pointed by indirectPointer
 				uint16_t table[256]; // the index table of the indirectPointer
@@ -553,13 +559,12 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 						// allocate a block for the index table pointed by the indirectPointer in the inode 
 						if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
 							ino->indirectPointer = block_store_allocate(fs->BlockStore_whole);
-							//printf("Indirectpointer address: %d\n",ino->indirectPointer);
 						} else {return -1;}
 					} 
 					block_store_read(fs->BlockStore_whole,ino->indirectPointer,table);
 					if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
 						table[order] = block_store_allocate(fs->BlockStore_whole); // allocate the data block pointed by an entry in the index table
-				       		 //printf("Indirect block address: %d\n",table[count]);
+							//printf("Indirectpointer : %lu\n",order);
 				 	} else {return -1;}
 					if(0==block_store_write(fs->BlockStore_whole,ino->indirectPointer,table)){ // update the index table
 						return -2;
@@ -577,7 +582,8 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 				uint16_t innerIndexTable[256];
 				memset(innerIndexTable,0x0000,256);
 				if(order+256+6>=usedBlockCount){ //the block hasnt been allocated yet
-					if(order==0){ // when the new block is the first entry of the first innerIndexTable of the outerIndexTable pointed by doubleIndirectPointer
+					if(order==0){ // when the new block is the first entry of the first innerIndexTable of the outerIndexTable pointed by doubleIndirectPointe
+						//printf("outerIndexTable index: %lu,usedBlockCount: %lu\n",order/256,usedBlockCount);
 						if(3<=block_store_get_free_blocks(fs->BlockStore_whole)){
 							ino->doubleIndirectPointer = block_store_allocate(fs->BlockStore_whole);
 							outerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
@@ -589,6 +595,7 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 						}
 					} else if(order%256==0){ // when the new block is the first entry of a new innerIndexTable
 						if(2<=block_store_get_free_blocks(fs->BlockStore_whole)){
+							//printf("outerIndexTable index: %lu,usedBlockCount: %lu\n",order/256,usedBlockCount);
 							block_store_read(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);
 							outerIndexTable[order/256] = block_store_allocate(fs->BlockStore_whole);
 							block_store_write(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
@@ -620,6 +627,20 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 	} 
 }
 
+//
+// calculate the file size up until the location pointed by fileDescriptor usage, order and offset
+// return size of the file
+size_t getFileSize(fileDescriptor_t *fd_t){
+		if(fd_t->usage == 1){
+			return 512 * fd_t->locate_order + fd_t->locate_offset;
+		} else if(fd_t->usage == 2){
+			return 512 * (6 + fd_t->locate_order) + fd_t->locate_offset;	
+		} else {
+			return 512 * (6 + 256 + fd_t->locate_order) + fd_t->locate_offset;
+		}
+} 
+
+
 /// Writes data from given buffer to the file linked to the descriptor
 ///   Writing past EOF extends the file
 ///   Writing inside a file overwrites existing data
@@ -644,6 +665,9 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 			if(0==block_store_fd_read(fs->BlockStore_fd,fd,&fd_t)){
 				return -2;
 			} else {
+				//printf("Free blocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
+				// File size up until the fd pointer
+				size_t locSize = getFileSize(&fd_t);
 				// calculate number of data blocks needed to store the src data including the block the offset is at
 				size_t blocksNeeded = ceil((nbyte+fd_t.locate_offset)/512.0);
 				// get the number of available blocks 
@@ -659,6 +683,9 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 					// write data to the first block starting where the current fd pointer is at
 					size_t i=0;	
 					for(;i<blocksNeeded;i++){
+						//if(200 >= block_store_get_free_blocks(fs->BlockStore_whole)){
+						//	printf("Free blocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
+						//}
 						if(0<block_store_get_free_blocks(fs->BlockStore_whole)){ 
 							ssize_t blockID = get_data_block_id(fs,&fd_t); // get the block id where the fd offset is at
 							if(blockID>=0){ 
@@ -666,11 +693,11 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 									if(0!=block_store_append(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes)){
 										if(nbyte+fd_t.locate_offset<512){// if the number of bytes is smaller than the remaining bytes in the block 
 											writtenBytes += nbyte;
-											fd_t.locate_offset += writtenBytes;// update offset but not order
+											fd_t.locate_offset += nbyte;// update offset but not order
 											// only update offset when it's the last write 
 											break; // finishi writing
 										} else {
-											writtenBytes = 512-fd_t.locate_offset;
+											writtenBytes += (512-fd_t.locate_offset);
 										}	
 									} else {return -5;}
 								} else {
@@ -703,17 +730,17 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 								}
 									
 							} else {
-								printf("%lu\n",i);
 								break;
 							}	
 						} else {
-							//printf("%lu\n",i);
 							break;
 						}
 					}
 					inode_t fileInode;
 					block_store_inode_read(fs->BlockStore_inode,fd_t.inodeNum,&fileInode);
-					fileInode.fileSize = writtenBytes; // Need to recalculate
+					if(fileInode.fileSize < locSize + writtenBytes){ // Need to recalculate
+						fileInode.fileSize = locSize + writtenBytes;
+					}
 					if(0!=block_store_fd_write(fs->BlockStore_fd,fd,&fd_t) && 0!=block_store_inode_write(fs->BlockStore_inode,fd_t.inodeNum,&fileInode)){
 					return writtenBytes;
 					} else {return -8;}							
@@ -721,13 +748,153 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 				}	
 			}
 		}
-	
-	// write a method allocate indirect and double indirect data blocks
-	// calculate if direct data blocks are enough to contain the bytes of data written
-	// if they can't, how many indirect data blocks are needed
-	// if both direct and indirect blocks won't work, try to see how many double indirect data blocks are needed.
-
 	}
+}
+
+//
+// Deletes the specified file and closes all open descriptors to the file
+//   Directories can only be removed when empty
+// \param fs The F17FS containing the file
+// \param path Absolute path to file to remove
+// \return 0 on success, < 0 on error
+//
+int fs_remove(F17FS_t *fs, const char *path) {
+	if(fs == NULL || path == NULL || strlen(path) == 0){
+		return -1;
+	}
+	// Validate the path
+	char firstChar = *path;
+	if(firstChar != '/'){return -2;}
+	char dirc[strlen(path)+1];
+	char basec[strlen(path)+1];
+	strcpy(dirc,path);
+	strcpy(basec,path);
+	char *dirPath =  dirname(dirc);
+	char *baseFileName = basename(basec);
+
+	size_t dirInodeID = searchPath(fs,dirPath);
+	size_t fileInodeID;
+	if(dirInodeID != SIZE_MAX){
+		if(0==strcmp(baseFileName,"/") && 0==strcmp(dirPath,"/") ){
+			fileInodeID = dirInodeID;
+		} else {
+			fileInodeID = getFileInodeID(fs,dirInodeID,baseFileName);
+			if(fileInodeID == 0){
+				printf("dirInodeID: %lu\n",dirInodeID);
+				printf("invalid fileInodeID %lu for dir: %s file: %s\n",fileInodeID,dirPath,baseFileName);
+				return -4;
+			}
+		}
+		inode_t fileInode;
+		block_store_inode_read(fs->BlockStore_inode,fileInodeID,&fileInode);
+		if(fileInode.fileType=='d'){
+		// If the file is a dir, delete it only if it is empty, meaning vacantFile == 0x00
+			if(fileInode.vacantFile == 0x00){
+				// To delete a dir, remove its entry from the directory block of its parent inode
+				inode_t dirInode; // Parent directoy inode
+				block_store_inode_read(fs->BlockStore_inode,dirInodeID,&dirInode);
+				//printf("Dir %s before clear file,vacantFile: %d\n",path,dirInode.vacantFile); 
+				bitmap_t *bmp = bitmap_overlay(8, &(dirInode.vacantFile));
+				directoryBlock_t db_t;
+				block_store_read(fs->BlockStore_whole,dirInode.directPointer[0],&db_t); 	
+				int m=0;
+				for(;m<7; m++){
+					if(bitmap_test(bmp,m)){
+						if(fileInodeID == db_t.dentries[m].inodeNumber /* && 0 < parentDir.dentries[k].inodeNumber*/){
+							bitmap_reset(bmp,m);	
+							break;
+						}
+					}	
+				}
+				//printf("Dir %s after clear file,vacantFile: %d\n",path,dirInode.vacantFile); 
+				bitmap_destroy(bmp);
+				block_store_inode_write(fs->BlockStore_inode,dirInodeID,&dirInode);
+				// Remove its file block pointed by directPointer[0], then remove its inode from inode table
+				block_store_release(fs->BlockStore_whole,fileInode.directPointer[0]);
+				block_store_sub_release(fs->BlockStore_inode,fileInodeID);
+				return 0;
+			}
+			//printf("Dir %s not empty,vacantFile: %d\n",path,fileInode.vacantFile); 
+			return -5;
+		} else if(fileInode.fileType=='r') { // if the file to remove is file
+			int i=0;
+			for(; i<6; i++){ // if the directPointer is allocated, release those memory addresses first
+				if(block_store_test(fs->BlockStore_whole,fileInode.directPointer[i])){
+					block_store_release(fs->BlockStore_whole,fileInode.directPointer[i]);	
+				}	
+			}
+			if(block_store_test(fs->BlockStore_whole,fileInode.indirectPointer)){// if the indirectPointer is allocated, 
+				uint16_t indexTable[256];
+				if(block_store_read(fs->BlockStore_whole,fileInode.indirectPointer,indexTable)){
+					int j=0;
+					for(; j<256; j++){ // release all the secondary memory addresses 
+						if(indexTable[j]!=0x0000 && block_store_test(fs->BlockStore_whole,indexTable[j])){
+							block_store_release(fs->BlockStore_whole,indexTable[j]);	
+						}	
+					}
+				}
+				block_store_release(fs->BlockStore_whole,fileInode.indirectPointer);	
+			}
+			if(block_store_test(fs->BlockStore_whole,fileInode.doubleIndirectPointer)){// if the doubleIndirectPointer is allocated, 
+				uint16_t outerIndexTable[256];
+				uint16_t innerIndexTable[256];
+				if(block_store_read(fs->BlockStore_whole,fileInode.doubleIndirectPointer,outerIndexTable)){
+					int j=0;
+				for(; j<256; j++){ // release all the secondary memory addresses 
+						if(outerIndexTable[j]!=0x0000 && block_store_test(fs->BlockStore_whole,outerIndexTable[j])){			
+							if(block_store_read(fs->BlockStore_whole,outerIndexTable[j],innerIndexTable)){
+								int k=0;
+								for(; k<256; k++){ // release all the secondary memory addresses 
+									if(innerIndexTable[k]!=0x0000 && block_store_test(fs->BlockStore_whole,innerIndexTable[k])){
+										block_store_release(fs->BlockStore_whole,innerIndexTable[k]);	
+									}	
+								}
+							}
+							block_store_release(fs->BlockStore_whole,outerIndexTable[j]);	
+						}	
+					}
+				}
+				block_store_release(fs->BlockStore_whole,fileInode.doubleIndirectPointer);	
+			}
+			int fd_count=0;
+			for(;fd_count<256;fd_count++){ // close all fd pointing to the file
+				if(block_store_sub_test(fs->BlockStore_fd,fd_count)){
+					fileDescriptor_t fd_t;
+					if(0!=block_store_fd_read(fs->BlockStore_fd,fd_count,&fd_t)){
+						if(fd_t.inodeNum==fileInodeID){
+							fs_close(fs,fd_count);
+						}
+					}
+					return -7;
+				}
+			}
+
+			// Remduce one bit from vacantFile
+			inode_t dirInode; // The inode for the parent directory containing the file
+			block_store_inode_read(fs->BlockStore_inode,dirInodeID,&dirInode);
+			//dirInode.vacantFile >>= 1 ; // Cannot do this, would mess up the directory file block
+			//printf("Dir %s before clear file,vacantFile: %d\n",path,dirInode.vacantFile); 
+			bitmap_t *bmp = bitmap_overlay(8, &(dirInode.vacantFile));
+			directoryBlock_t db_t;
+			block_store_read(fs->BlockStore_whole,dirInode.directPointer[0],&db_t); 	
+			int m=0;
+			for(;m<7; m++){
+				if(bitmap_test(bmp,m)){
+					if(fileInodeID == db_t.dentries[m].inodeNumber /* && 0 < parentDir.dentries[k].inodeNumber*/){
+						bitmap_reset(bmp,m);	
+						break;
+					}
+				}
+			}
+			//printf("Dir %s after clear file,vacantFile: %d\n",path,dirInode.vacantFile); 
+			bitmap_destroy(bmp);
+			block_store_inode_write(fs->BlockStore_inode,dirInodeID,&dirInode);
+			return 0;
+		}
+		return -6;	
+	}
+	return -3;
+	// To delete a file, you need to search all the data blocks allocated to it, including direct, indirect and dbindirect blocks.
 }
 
 

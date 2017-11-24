@@ -212,7 +212,7 @@ size_t block_store_sub_allocate(block_store_t *const bs) {
 /// \return boolean indicating succes of operation
 ///
 bool block_store_request(block_store_t *const bs, const size_t block_id) {
-    if (block_id >= BLOCK_STORE_AVAIL_BLOCKS || bs == NULL) {
+    if (block_id > BLOCK_STORE_AVAIL_BLOCKS || bs == NULL) {
         return false;
     }
     bool blockUsed = 0;
@@ -228,6 +228,19 @@ bool block_store_request(block_store_t *const bs, const size_t block_id) {
     }
 }
 
+bool block_store_test(block_store_t *const bs, const size_t block_id) {
+    if (block_id >= BLOCK_STORE_AVAIL_BLOCKS || bs == NULL) {
+        return false;
+    }
+    bool blockUsed = 0;
+    blockUsed = bitmap_test(bs->fbm, block_id); // check if the block is in use
+    if (blockUsed) { // if this block is already in use
+        return false;
+    }
+    else { // if this block is not in use
+        return true;
+    }
+}
 
 bool block_store_sub_test(block_store_t *const bs, const size_t block_id) {
     if (block_id > 255 || bs == NULL) {
@@ -248,7 +261,7 @@ bool block_store_sub_test(block_store_t *const bs, const size_t block_id) {
 /// \param block_id The block to free
 ///
 void block_store_release(block_store_t *const bs, const size_t block_id) {
-    if (block_id < BLOCK_STORE_AVAIL_BLOCKS && bs != NULL) {
+    if (block_id <= BLOCK_STORE_AVAIL_BLOCKS && bs != NULL) {
         bool success = 0;
         success = bitmap_test(bs->fbm, block_id); // check if the block is in use
         if (success) {
@@ -322,7 +335,7 @@ size_t block_store_get_total_blocks() {
 /// \return Number of bytes read, 0 on error
 ///
 size_t block_store_read(const block_store_t *const bs, const size_t block_id, void *buffer) {
-    if (bs && buffer && block_id < BLOCK_STORE_AVAIL_BLOCKS) {
+    if (bs && buffer && block_id <= BLOCK_STORE_AVAIL_BLOCKS) {
         memcpy(buffer, bs->data_blocks+block_id*BLOCK_SIZE_BYTES, BLOCK_SIZE_BYTES);
         return BLOCK_SIZE_BYTES;
     }
@@ -355,7 +368,7 @@ size_t block_store_fd_read(const block_store_t *const bs, const size_t block_id,
 /// \return Number of bytes written, 0 on error
 ///
 size_t block_store_write(block_store_t *const bs, const size_t block_id, const void *buffer) {
-    if (bs && buffer && block_id < BLOCK_STORE_AVAIL_BLOCKS) {
+    if (bs && buffer && block_id <= BLOCK_STORE_AVAIL_BLOCKS) {
         memcpy(bs->data_blocks+block_id*BLOCK_SIZE_BYTES, buffer, BLOCK_SIZE_BYTES);
         return BLOCK_SIZE_BYTES;
     }
@@ -364,7 +377,7 @@ size_t block_store_write(block_store_t *const bs, const size_t block_id, const v
 
 // append data to existing data in the same block
 size_t block_store_append(block_store_t *const bs, const size_t block_id, off_t offset, const void *buffer){
-    if (bs && buffer && offset < BLOCK_SIZE_BYTES  && block_id< BLOCK_STORE_AVAIL_BLOCKS) {
+    if (bs && buffer && offset < BLOCK_SIZE_BYTES  && block_id <= BLOCK_STORE_AVAIL_BLOCKS) {
         memcpy(bs->data_blocks+block_id*BLOCK_SIZE_BYTES+offset, buffer, BLOCK_SIZE_BYTES-offset);
         return BLOCK_SIZE_BYTES;
     }

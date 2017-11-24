@@ -649,7 +649,7 @@ TEST(d_tests, write_file_fill) {
     9. Error, NULL fname
     10. Error, Empty fname (same as file does not exist?)
 */
-/*
+
 TEST(e_tests, remove_file) {
     vector<const char *> b_fnames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -699,7 +699,7 @@ TEST(e_tests, remove_file) {
     fs_unmount(fs);
     score += 15;
 }
-*/
+
 /*
     off_t fs_seek(F17FS *fs, int fd, off_t offset, seek_t whence)
     1. Normal, wherever, really - make sure it doesn't change a second fd to the file
