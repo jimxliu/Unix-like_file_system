@@ -357,7 +357,8 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 		newInode.fileSize = BLOCK_SIZE_BYTES;	
 	} else { // If to create a file
 		newInode.fileSize = 0;
-		// Not need to allocate an empty block for the file
+		// Not need to allocate an empty data block for the file.
+		// The get_data_block_id will take care of allocation of the data blocks when writing data to the file
 		
 	}
 	newInode.inodeNumber = newInodeID;
@@ -775,13 +776,13 @@ int fs_remove(F17FS_t *fs, const char *path) {
 	size_t dirInodeID = searchPath(fs,dirPath);
 	size_t fileInodeID;
 	if(dirInodeID != SIZE_MAX){
-		if(0==strcmp(baseFileName,"/") && 0==strcmp(dirPath,"/") ){
-			fileInodeID = dirInodeID;
-		} else {
+		if(0==strcmp(baseFileName,"/") && 0==strcmp(dirPath,"/") ){// Cannot remove root directory
+			return -4;
+		} else { // If not root, need to validate the file's inode ID
 			fileInodeID = getFileInodeID(fs,dirInodeID,baseFileName);
 			if(fileInodeID == 0){
-				printf("dirInodeID: %lu\n",dirInodeID);
-				printf("invalid fileInodeID %lu for dir: %s file: %s\n",fileInodeID,dirPath,baseFileName);
+				//printf("dirInodeID: %lu\n",dirInodeID);
+				//printf("invalid fileInodeID %lu for dir: %s file: %s\n",fileInodeID,dirPath,baseFileName);
 				return -4;
 			}
 		}
