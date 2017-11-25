@@ -553,7 +553,7 @@ TEST(d_tests, write_file_simple) {
     fs_unmount(fs);
     
 }
-
+/*
 TEST(d_tests, write_file_fill) {
     // Still gotta test write 6,7,8,9
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
@@ -634,7 +634,7 @@ TEST(d_tests, write_file_fill) {
     // But I tried, so nobody can judge me.
     fs_unmount(fs);
     score += 15;
-}
+}*/
 
 /* 0-33 34-65519 65520-65535
     int fs_remove(F17FS *fs, const char *path);
@@ -709,7 +709,7 @@ TEST(e_tests, remove_file) {
     5. Error, fd invalid
     6. Error, whence not a valid value
 */
-/*
+
 TEST(g_tests, seek) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -748,7 +748,7 @@ TEST(g_tests, seek) {
     ASSERT_LT(position, 0);
     fs_unmount(fs);
     score += 13;
-}*/
+}
 /*
     ssize_t fs_read(F17FS *fs, int fd, void *dst, size_t nbyte);
     1. Normal, begin to < 1 block

@@ -898,6 +898,79 @@ int fs_remove(F17FS_t *fs, const char *path) {
 	// To delete a file, you need to search all the data blocks allocated to it, including direct, indirect and dbindirect blocks.
 }
 
+///
+/// Moves the R/W position of the given descriptor to the given location
+///   Files cannot be seeked past EOF or before BOF (beginning of file or offset==0)
+///   Seeking past EOF will seek to EOF, seeking before BOF will seek to BOF
+/// \param fs The F17FS containing the file
+/// \param fd The descriptor to seek
+/// \param offset Desired offset relative to whence
+/// \param whence Position from which offset is applied
+/// \return offset from BOF, < 0 on error
+///
+off_t fs_seek(F17FS_t *fs, int fd, off_t offset, seek_t whence){
+	if(fs !=NULL && fd >= 0 && block_store_sub_test(fs->BlockStore_fd,fd)){
+		fileDescriptor_t fd_t;
+		inode_t fileInode;
+		if(0 !=block_store_fd_read(fs->BlockStore_fd,fd,&fd_t) && 0 != block_store_inode_read(fs->BlockStore_inode,fd_t.inodeNum,&fileInode)){
+			ssize_t currentOffset = getFileSize(&fd_t);
+			ssize_t fileSize = fileInode.fileSize;
+			off_t stdOffset; // Standardized offset, starting from BOF
+			// Standardize the offset against the BOF from the three cases: FS_SEEK_SET, FS_SEEK_CUR, and FS_SEEK_END
+			if(whence == FS_SEEK_SET){
+				if(offset<0){
+					stdOffset = 0;
+				} else if(offset > fileSize){
+					stdOffset = fileSize;
+				} else {
+					stdOffset = offset;
+				}
+			} else if(whence == FS_SEEK_CUR){
+				if(0 > currentOffset + offset){
+					stdOffset = 0;	
+				} else if(fileSize < currentOffset + offset){
+					stdOffset = fileSize;
+				} else {
+					stdOffset = currentOffset + offset;
+				}
+			} else if(whence == FS_SEEK_END){
+				if(offset>0){
+					stdOffset = fileSize;
+				} else if(offset + fileSize < 0){
+					stdOffset = 0;
+				} else {
+					stdOffset = offset + fileSize;
+				}
+			} else {
+				return -4;
+			}	
+			// Calculate the relative offset, order, and usage	
+			if(ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) > DIRECT_BLOCKS + INDIRECT_BLOCKS) {
+				fd_t.usage = 4;
+				fd_t.locate_offset = stdOffset % BLOCK_SIZE_BYTES;
+				fd_t.locate_order = ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) - 1 - (DIRECT_BLOCKS + INDIRECT_BLOCKS);
+			} else if (ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) > DIRECT_BLOCKS){
+				fd_t.usage = 2;
+				fd_t.locate_offset = stdOffset % BLOCK_SIZE_BYTES;
+				fd_t.locate_order = ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) - 1 - DIRECT_BLOCKS; 
+			} else {
+				fd_t.usage = 1;
+                		fd_t.locate_offset = stdOffset % BLOCK_SIZE_BYTES;
+				if(stdOffset==0){
+					fd_t.locate_order = 0;	
+				} else {
+                			fd_t.locate_order = ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) - 1;
+				}
+			}
+			if(0 != block_store_fd_write(fs->BlockStore_fd,fd,&fd_t)){
+				return stdOffset;
+			} 
+			return -3;
+		}
+		return -2;	
+	} 
+	return -1;
+}
 
 
 
