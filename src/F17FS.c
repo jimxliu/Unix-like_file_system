@@ -541,14 +541,17 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 			free(ino);
 			return -1;
 		} else {
-			size_t usedBlockCount = ceil(ino->fileSize/512);//get the blocks used by this file
+			size_t usedBlockCount = ceil(ino->fileSize/512.0);//get the blocks used by this file
 			size_t order = fd_t->locate_order; 
 	
 			if(fd_t->usage == 1){ // the block to be used is pointed by directPointer
 				if(order>=usedBlockCount){ // if the block hasnt been allocated
 					if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
 						ino->directPointer[order] = block_store_allocate(fs->BlockStore_whole);	
-					} else {return -1;}	
+					} else {
+						free(ino);
+						return -1;
+					}	
 				}
 				//printf("direct block address: %lu\n",order);
 				return ino->directPointer[order]; // return the pointer, i.e., the address of the data block to write
@@ -560,18 +563,23 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 						// allocate a block for the index table pointed by the indirectPointer in the inode 
 						if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
 							ino->indirectPointer = block_store_allocate(fs->BlockStore_whole);
-						} else {return -1;}
+						} else {
+							free(ino);	
+							return -1;
+						}
 					} 
 					block_store_read(fs->BlockStore_whole,ino->indirectPointer,table);
 					if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
 						table[order] = block_store_allocate(fs->BlockStore_whole); // allocate the data block pointed by an entry in the index table
 							//printf("Indirectpointer : %lu\n",order);
-				 	} else {return -1;}
+				 	} else {free(ino); return -1;}
 					if(0==block_store_write(fs->BlockStore_whole,ino->indirectPointer,table)){ // update the index table
+						free(ino);
 						return -2;
 					} 
 				} else { // the block is already allocated 
 					if(0==block_store_read(fs->BlockStore_whole,ino->indirectPointer,table)){
+						free(ino);
 						return -3;
 					}
 				}
@@ -592,7 +600,7 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 							innerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
 							block_store_write(fs->BlockStore_whole,outerIndexTable[0],innerIndexTable);
 						} else {
-							return -4;
+							free(ino); return -4;
 						}
 					} else if(order%256==0){ // when the new block is the first entry of a new innerIndexTable
 						if(2<=block_store_get_free_blocks(fs->BlockStore_whole)){
@@ -603,7 +611,7 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 							innerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
 							block_store_write(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable);	
 						} else {
-							return -5;
+							free(ino); return -5;
 						}
 					} else {// when the new block is in the same innerIndexTable
 						if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
@@ -612,7 +620,7 @@ ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 							innerIndexTable[order%256] = block_store_allocate(fs->BlockStore_whole);	
 							block_store_write(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable);
 						} else {
-							return -6;
+							free(ino); return -6;
 						}
 					}
 				} else { // the block is already allocated
@@ -690,46 +698,35 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 						if(0<block_store_get_free_blocks(fs->BlockStore_whole)){ 
 							ssize_t blockID = get_data_block_id(fs,&fd_t); // get the block id where the fd offset is at
 							if(blockID>=0){ 
-								if(i==0&&fd_t.locate_offset>0){ // the first block to write where the offset is not 0
-									if(0!=block_store_append(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes)){
-										if(nbyte+fd_t.locate_offset<512){// if the number of bytes is smaller than the remaining bytes in the block 
-											writtenBytes += nbyte;
-											fd_t.locate_offset += nbyte;// update offset but not order
-											// only update offset when it's the last write 
-											break; // finishi writing
-										} else {
-											writtenBytes += (512-fd_t.locate_offset);
-										}	
-									} else {return -5;}
-								} else {
-									if(0!=block_store_write(fs->BlockStore_whole,blockID,src+writtenBytes)){
-										if(nbyte-writtenBytes>=512){
-											writtenBytes += 512;
-										}else{// if the remaining bytes is less than a block
-											fd_t.locate_offset += (nbyte-writtenBytes);//update
-											// only update offset when it's the last write 
-											writtenBytes += (nbyte-writtenBytes);
-											break;	
-										}	
-									} else {
-										//printf("blockID: %ld\n",blockID);
-										//printf("freeBlocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
-										return -6; 
-									}
+								if(fd_t.locate_offset + nbyte - writtenBytes < BLOCK_SIZE_BYTES){ // the last block to write 
+									if(0!=block_store_n_write(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes,nbyte-writtenBytes)){
+										fd_t.locate_offset += (nbyte - writtenBytes); // update locate_offset
+										writtenBytes += (nbyte-writtenBytes);		
+										break; // finish writing
+									} 
+									return -5;
+								} else { 
+									if(0!=block_store_n_write(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes,BLOCK_SIZE_BYTES-fd_t.locate_offset)){
+										writtenBytes += (BLOCK_SIZE_BYTES - fd_t.locate_offset);
+										fd_t.locate_offset = 0;//update locate_offset
+										// update locate_order
+										if(fd_t.usage==1&&fd_t.locate_order== (DIRECT_BLOCKS-1)){ // directPointer space is full
+											fd_t.locate_order = 0;
+											fd_t.usage = 2;
+											//printf("dip into indirect blocks\n");
+										} else if(fd_t.usage==2&&fd_t.locate_order== (INDIRECT_BLOCKS-1)){ // indirectPointer space is full
+											fd_t.locate_order = 0;
+											fd_t.usage = 4;
+											//printf("dip into double indirect blocks\n");
+										} else { // as long as not exceeding the double inidirect max, unlikely
+											fd_t.locate_order += 1;
+										}
+										continue;
+									} 
+									//printf("offset: %d, bytes: %d\n",fd_t.locate_offset,512-fd_t.locate_offset);
+									//printf("freeBlocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
+									return -6; 
 								}
-								// update locate_order
-								if(fd_t.usage==1&&fd_t.locate_order== (DIRECT_BLOCKS-1)){ // directPointer space is full
-									fd_t.locate_order = 0;
-									fd_t.usage = 2;
-									//printf("dip into indirect blocks\n");
-								} else if(fd_t.usage==2&&fd_t.locate_order== (INDIRECT_BLOCKS-1)){ // indirectPointer space is full
-									fd_t.locate_order = 0;
-									fd_t.usage = 4;
-									//printf("dip into double indirect blocks\n");
-								} else { // as long as not exceeding the double inidirect max, unlikely
-									fd_t.locate_order += 1;
-								}
-									
 							} else {
 								break;
 							}	
@@ -972,5 +969,76 @@ off_t fs_seek(F17FS_t *fs, int fd, off_t offset, seek_t whence){
 	return -1;
 }
 
-
-
+///
+/// Reads data from the file linked to the given descriptor
+///   Reading past EOF returns data up to EOF
+///   R/W position in incremented by the number of bytes read
+/// \param fs The F17FS containing the file
+/// \param fd The file to read from
+/// \param dst The buffer to write to
+/// \param nbyte The number of bytes to read
+/// \return number of bytes read (< nbyte IFF read passes EOF), < 0 on error
+//
+ssize_t fs_read(F17FS_t *fs, int fd, void *dst, size_t nbyte){
+	// check if fs,fd,src are valid
+	if(fs !=NULL && fd >= 0 && block_store_sub_test(fs->BlockStore_fd,fd) && dst != NULL){
+		if(nbyte != 0){
+			// Open the fileDescriptor and file inode
+			fileDescriptor_t fd_t;
+			inode_t fileInode;
+			if(0 != block_store_fd_read(fs->BlockStore_fd,fd,&fd_t) && 0 != block_store_inode_read(fs->BlockStore_inode,fd_t.inodeNum,&fileInode)){
+				// Get the current offset and the file size
+				size_t fileSize =  fileInode.fileSize;
+				size_t currentOffset = getFileSize(&fd_t);
+				// Calculate the maximum of bytes it can read (fileSize - current offset)
+				size_t leftBytes = fileSize - currentOffset;
+				// If the maximum of bytes to read is smaller than nbyte, then set nbyte to  maximum of bytes 
+				if(nbyte > leftBytes){
+					nbyte =  leftBytes;
+				}
+				size_t readBytes = 0;
+				while(nbyte - readBytes > 0){
+					ssize_t blockID = get_data_block_id(fs,&fd_t); // Get the data block to read	
+					if(blockID >= 0){
+						if(fd_t.locate_offset + nbyte - readBytes < BLOCK_SIZE_BYTES){
+							// Need a special read method here to write less than BLOCK_SIZE_BYTES
+							if(0 != block_store_n_read(fs->BlockStore_whole,blockID,fd_t.locate_offset,dst+readBytes,nbyte-readBytes)){
+								fd_t.locate_offset = fd_t.locate_offset + nbyte - readBytes;
+								readBytes = nbyte;
+								continue;
+							}
+							return -4;
+						} else {
+							if(0 != block_store_n_read(fs->BlockStore_whole,blockID,fd_t.locate_offset,dst+readBytes,BLOCK_SIZE_BYTES-fd_t.locate_offset)){
+								readBytes += (BLOCK_SIZE_BYTES-fd_t.locate_offset);
+								// increment usage and locate_order
+								if(fd_t.usage==1&&fd_t.locate_order== (DIRECT_BLOCKS-1)){ // directPointer space is full
+									fd_t.locate_order = 0;
+									fd_t.usage = 2;
+									//printf("dip into indirect blocks\n");
+								} else if(fd_t.usage==2&&fd_t.locate_order== (INDIRECT_BLOCKS-1)){ // indirectPointer space is full
+									fd_t.locate_order = 0;
+									fd_t.usage = 4;
+									//printf("dip into double indirect blocks\n");
+								} else { // as long as not exceeding the double inidirect max, unlikely
+									fd_t.locate_order += 1;
+								}
+								fd_t.locate_offset = 0;
+								continue;
+							}
+							return -5;	
+						}
+					}
+					return -3;
+				}
+				if(0 != block_store_fd_write(fs->BlockStore_fd,fd,&fd_t)){ // update the fd
+					return readBytes;
+				}
+				return -6;					
+			}
+			return -2;
+		}
+		return 0;
+	} 
+	return -1;
+}

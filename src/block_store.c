@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-
 #include <stdbool.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -342,6 +341,22 @@ size_t block_store_read(const block_store_t *const bs, const size_t block_id, vo
     return 0;
 }
 
+///
+///-- Reads n bytes of data from the specified offset in the specified block and writes it to the designated buffer
+/// \param bs BS device
+/// \param block_id Source block id
+/// \param offset The offset in the block
+/// \param buffer Data buffer to write to
+/// \param bytes Number of bytes to write
+/// \return Number of bytes read, 0 on error
+///
+size_t block_store_n_read(const block_store_t *const bs, const size_t block_id, size_t offset, void *buffer, size_t bytes) {
+    if (bs && buffer && block_id <= BLOCK_STORE_AVAIL_BLOCKS && offset < BLOCK_SIZE_BYTES && bytes + offset <= BLOCK_SIZE_BYTES) {
+        memcpy(buffer, bs->data_blocks+block_id*BLOCK_SIZE_BYTES+offset, bytes);
+        return bytes;
+    }
+    return 0;
+}
 
 size_t block_store_inode_read(const block_store_t *const bs, const size_t block_id, void *buffer) {
     if (bs && buffer && block_id <= 255) {
@@ -375,11 +390,19 @@ size_t block_store_write(block_store_t *const bs, const size_t block_id, const v
     return 0;
 }
 
-// append data to existing data in the same block
-size_t block_store_append(block_store_t *const bs, const size_t block_id, off_t offset, const void *buffer){
-    if (bs && buffer && offset < BLOCK_SIZE_BYTES  && block_id <= BLOCK_STORE_AVAIL_BLOCKS) {
-        memcpy(bs->data_blocks+block_id*BLOCK_SIZE_BYTES+offset, buffer, BLOCK_SIZE_BYTES-offset);
-        return BLOCK_SIZE_BYTES;
+///
+/// Reads certain number of bytes of data from the specified buffer and writes it to the designated block at designated offset
+/// \param bs BS device
+/// \param block_id Destination block id
+/// \param offset The offset in the data block where to start writing
+/// \param buffer Data buffer to read from
+/// \param bytes Number of bytes to write to
+/// \return Number of bytes written, 0 on error
+///
+size_t block_store_n_write(block_store_t *const bs, const size_t block_id, size_t offset, const void *buffer, size_t bytes){
+    if (bs && buffer && block_id <= BLOCK_STORE_AVAIL_BLOCKS && offset < 512 && offset + bytes <= BLOCK_SIZE_BYTES) {
+        memcpy(bs->data_blocks+block_id*BLOCK_SIZE_BYTES+offset, buffer, bytes);
+        return bytes;
     }
     return 0;
 }

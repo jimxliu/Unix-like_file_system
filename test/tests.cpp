@@ -553,7 +553,7 @@ TEST(d_tests, write_file_simple) {
     fs_unmount(fs);
     
 }
-/*
+
 TEST(d_tests, write_file_fill) {
     // Still gotta test write 6,7,8,9
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
@@ -634,7 +634,7 @@ TEST(d_tests, write_file_fill) {
     // But I tried, so nobody can judge me.
     fs_unmount(fs);
     score += 15;
-}*/
+}
 
 /* 0-33 34-65519 65520-65535
     int fs_remove(F17FS *fs, const char *path);
@@ -763,7 +763,7 @@ TEST(g_tests, seek) {
     10. Normal, nbyte 0
     11. Normal, at EOF
 */
-/*
+
 TEST(h_tests, read) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -783,6 +783,7 @@ TEST(h_tests, read) {
     // FS_READ 1
     ssize_t nbyte = fs_read(fs, fd, &write_space, 444);
     ASSERT_EQ(nbyte, 444);
+    ASSERT_EQ(memcmp(write_space, large_eight_five_b_seven, 1), 0);
     ASSERT_EQ(memcmp(write_space, large_eight_five_b_seven, 444), 0);
     // FS_READ 2
     nbyte = fs_read(fs, fd, &write_space, 500);
@@ -839,7 +840,7 @@ TEST(h_tests, read) {
     fs_unmount(fs);
     score += 20;
 }
-*/
+
 #ifdef GRAD_TESTS
 // <<<<<<< HEAD
 // =======
