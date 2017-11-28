@@ -540,12 +540,12 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
 // return the data block id, or 0 on error
 uint16_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 	if(fs==NULL || fd_t==NULL){
-		printf("fs or fd_t == NULL\n");
+		//printf("fs or fd_t == NULL\n");
 		return 0;
 	} else {
 		inode_t ino;
 		if(0==block_store_inode_read(fs->BlockStore_inode,fd_t->inodeNum,&ino)){
-			printf("Cannot read inode\n");
+			//printf("Cannot read inode\n");
 			return 0;
 		} else {
 			size_t order = fd_t->locate_order; 
@@ -592,9 +592,9 @@ uint16_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 							return table[order];
 						}
 					}
-					printf("indirectPointer set but cannot access\n");
+					//printf("indirectPointer set but cannot access\n");
 				}
-				printf("indirectPointer %d\n",ino.indirectPointer);
+				//printf("indirectPointer %d\n",ino.indirectPointer);
 				return 0;	
 			} else { // the block is pointed by a doubleIndiretPointer
 				uint16_t outerIndexTable[256];
@@ -611,7 +611,7 @@ uint16_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 						if(block_store_write(fs->BlockStore_whole,ino.doubleIndirectPointer,outerIndexTable) &&	
 						   block_store_write(fs->BlockStore_whole,outerIndexTable[0],innerIndexTable) &&
 						   block_store_inode_write(fs->BlockStore_inode,fd_t->inodeNum,&ino)){
-							printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[0],order);
+							//printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[0],order);
 							return innerIndexTable[0];
 						}
 					} 	
@@ -624,7 +624,7 @@ uint16_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 								outerIndexTable[order/256] = block_store_allocate(fs->BlockStore_whole);
 								innerIndexTable[order%256] = block_store_allocate(fs->BlockStore_whole);
 								if(0!=block_store_write(fs->BlockStore_whole,ino.doubleIndirectPointer,outerIndexTable) && 0!=block_store_write(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable)){
-									printf("? dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
+									//printf("? dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
  									return innerIndexTable[order%256];
 								}
 							} 	
@@ -635,12 +635,12 @@ uint16_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 									if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
 										innerIndexTable[order%256] = block_store_allocate(fs->BlockStore_whole);
 										if(block_store_write(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable)){
-											printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
+											//printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
 											return innerIndexTable[order%256];
 										}
 									}	
 								} else if(0x0000 != innerIndexTable[order%256] && block_store_test(fs->BlockStore_whole,innerIndexTable[order%256])){
-									printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
+									//printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
 									return innerIndexTable[order%256];
 								}	
 								//printf("Something happened to doubleIndirect 5");
@@ -651,7 +651,7 @@ uint16_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 					}
 					//printf("Something happened to doubleIndirect 2");
 				}
-				printf("Something happened to doubleIndirect");
+				//printf("Something happened to doubleIndirect");
 				return 0;
 			}
 			//printf("Something happened to doubleIndirect -1");
@@ -699,10 +699,10 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 			if(0==block_store_fd_read(fs->BlockStore_fd,fd,&fd_t)){
 				return -2;
 			} else {
-				printf("Free blocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
+				//printf("Free blocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
 				size_t locSize = getFileSize(&fd_t); 
 				size_t writtenBytes = 0;
-				printf("start writing:\n");
+				//printf("start writing:\n");
 				// write data to the first block starting where the current fd pointer is at	
 				while(nbyte - writtenBytes > 0){
 					uint16_t blockID = get_data_block_id(fs,&fd_t); 
@@ -715,7 +715,7 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 								writtenBytes = nbyte;		
 								break; // finish writing
 							}
-							printf("blockID: %d,offset: %d, nbyte: %lu, writtenBytes: %lu\n",blockID,fd_t.locate_offset,nbyte,writtenBytes); 
+							//printf("blockID: %d,offset: %d, nbyte: %lu, writtenBytes: %lu\n",blockID,fd_t.locate_offset,nbyte,writtenBytes); 
 							return -5;
 						} else { 
 							if(0!=block_store_n_write(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes,BLOCK_SIZE_BYTES-fd_t.locate_offset)){
@@ -740,12 +740,12 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 							} 
 							//printf("offset: %d, bytes: %d\n",fd_t.locate_offset,512-fd_t.locate_offset);
 							//printf("freeBlocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
-							printf("blockID: %d,offset: %d, nbyte: %lu, writtenBytes: %lu\n",blockID,fd_t.locate_offset,nbyte,writtenBytes); 
-							printf("Used blocks: %lu\n",block_store_get_used_blocks(fs->BlockStore_whole));
+							//printf("blockID: %d,offset: %d, nbyte: %lu, writtenBytes: %lu\n",blockID,fd_t.locate_offset,nbyte,writtenBytes); 
+							//printf("Used blocks: %lu\n",block_store_get_used_blocks(fs->BlockStore_whole));
 							return -6; 
 						}
 					} else {
-					printf("error on getting block id: %d,order:%d\n",blockID,fd_t.locate_order);
+					//printf("error on getting block id: %d,order:%d\n",blockID,fd_t.locate_order);
 					break;
 					}	
 				} 
@@ -755,7 +755,7 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 					fileInode.fileSize = locSize + writtenBytes;
 				}
 				if(0!=block_store_fd_write(fs->BlockStore_fd,fd,&fd_t) && 0!=block_store_inode_write(fs->BlockStore_inode,fd_t.inodeNum,&fileInode)){
-					printf("Finish writing: %lu\n",writtenBytes);
+					//printf("Finish writing: %lu\n",writtenBytes);
 					return writtenBytes;
 				} else {return -8;}							
 	
@@ -957,22 +957,18 @@ off_t fs_seek(F17FS_t *fs, int fd, off_t offset, seek_t whence){
 				return -4;
 			}	
 			// Calculate the relative offset, order, and usage	
-			if(ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) > DIRECT_BLOCKS + INDIRECT_BLOCKS) {
+			if((stdOffset/BLOCK_SIZE_BYTES) >= DIRECT_BLOCKS + INDIRECT_BLOCKS) {
 				fd_t.usage = 4;
 				fd_t.locate_offset = stdOffset % BLOCK_SIZE_BYTES;
-				fd_t.locate_order = ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) - 1 - (DIRECT_BLOCKS + INDIRECT_BLOCKS);
-			} else if (ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) > DIRECT_BLOCKS){
+				fd_t.locate_order = (stdOffset/BLOCK_SIZE_BYTES) - (DIRECT_BLOCKS + INDIRECT_BLOCKS);
+			} else if (ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) >= DIRECT_BLOCKS){
 				fd_t.usage = 2;
 				fd_t.locate_offset = stdOffset % BLOCK_SIZE_BYTES;
-				fd_t.locate_order = ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) - 1 - DIRECT_BLOCKS; 
+				fd_t.locate_order = (stdOffset/BLOCK_SIZE_BYTES) - DIRECT_BLOCKS; 
 			} else {
 				fd_t.usage = 1;
                 		fd_t.locate_offset = stdOffset % BLOCK_SIZE_BYTES;
-				if(stdOffset==0){
-					fd_t.locate_order = 0;	
-				} else {
-                			fd_t.locate_order = ceil(1.0*stdOffset/BLOCK_SIZE_BYTES) - 1;
-				}
+                		fd_t.locate_order = stdOffset/BLOCK_SIZE_BYTES;
 			}
 			if(0 != block_store_fd_write(fs->BlockStore_fd,fd,&fd_t)){
 				return stdOffset;
