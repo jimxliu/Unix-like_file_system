@@ -357,6 +357,12 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 		newInode.fileSize = BLOCK_SIZE_BYTES;	
 	} else { // If to create a file
 		newInode.fileSize = 0;
+		int i=0;
+		for(;i<6;i++){
+			newInode.directPointer[i] = 0x0000;
+		}	
+		newInode.indirectPointer = 0x0000;
+		newInode.doubleIndirectPointer = 0x0000;
 		// Not need to allocate an empty data block for the file.
 		// The get_data_block_id will take care of allocation of the data blocks when writing data to the file
 		
@@ -531,109 +537,128 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
 // \param fs The F17FS Filesystem
 // \param fd_t The fileDescriptor object
 // \param fileInode Inode of the file
-// return the data block id, or <0 on error
-ssize_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
+// return the data block id, or 0 on error
+uint16_t get_data_block_id(F17FS_t *fs, fileDescriptor_t *fd_t){
 	if(fs==NULL || fd_t==NULL){
-		return -1;
+		printf("fs or fd_t == NULL\n");
+		return 0;
 	} else {
-		inode_t *ino = malloc(sizeof(inode_t));
-		if(0==block_store_inode_read(fs->BlockStore_inode,fd_t->inodeNum,ino)){
-			free(ino);
-			return -1;
+		inode_t ino;
+		if(0==block_store_inode_read(fs->BlockStore_inode,fd_t->inodeNum,&ino)){
+			printf("Cannot read inode\n");
+			return 0;
 		} else {
-			size_t usedBlockCount = ceil(ino->fileSize/512.0);//get the blocks used by this file
 			size_t order = fd_t->locate_order; 
 	
 			if(fd_t->usage == 1){ // the block to be used is pointed by directPointer
-				if(order>=usedBlockCount){ // if the block hasnt been allocated
+				if(0x0000 == ino.directPointer[order]){ // if the block hasnt been allocated
 					if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
-						ino->directPointer[order] = block_store_allocate(fs->BlockStore_whole);	
-					} else {
-						free(ino);
-						return -1;
-					}	
+						ino.directPointer[order] = block_store_allocate(fs->BlockStore_whole);
+						if(block_store_inode_write(fs->BlockStore_inode,fd_t->inodeNum,&ino)){
+							//printf("new, usage:%d, order:%lu,offset:%d\n",fd_t->usage,order,fd_t->locate_offset);
+							return ino.directPointer[order];
+						}
+					}
+				} else if(0x0000 != ino.directPointer[order] && block_store_test(fs->BlockStore_whole,ino.directPointer[order])){
+					//printf("existed\n");
+					return ino.directPointer[order]; // return the pointer, i.e., the address of the data block to write
 				}
-				//printf("direct block address: %lu\n",order);
-				return ino->directPointer[order]; // return the pointer, i.e., the address of the data block to write
+				//printf("error,order:%lu,offset:%d,direct addr:%d\n",order,fd_t->locate_offset,ino.directPointer[order]);
+				return 0;
 			} else if(fd_t->usage == 2){ // the block is pointed by indirectPointer
 				uint16_t table[256]; // the index table of the indirectPointer
-				memset(table,0x0000,256);
-				if(order+6>=usedBlockCount){ // the block hasnt been allocated
-					if(order==0){ // the block is the first indirectPointer pointed block
-						// allocate a block for the index table pointed by the indirectPointer in the inode 
-						if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
-							ino->indirectPointer = block_store_allocate(fs->BlockStore_whole);
-						} else {
-							free(ino);	
-							return -1;
+				memset(table,0x0000,2*256);
+				if(0 == order && 0x0000 == ino.indirectPointer){ // the block hasnt been allocated
+					// the block is the first indirectPointer pointed block
+					// allocate a block for the index table pointed by the indirectPointer in the inode 
+					if(2<=block_store_get_free_blocks(fs->BlockStore_whole)){
+						ino.indirectPointer = block_store_allocate(fs->BlockStore_whole);
+						table[0] = block_store_allocate(fs->BlockStore_whole); // allocate the data block pointed by an entry in the index table
+						if(0!=block_store_write(fs->BlockStore_whole,ino.indirectPointer,table) && 0!=block_store_inode_write(fs->BlockStore_inode,fd_t->inodeNum,&ino)){
+							return table[0]; 
 						}
 					} 
-					block_store_read(fs->BlockStore_whole,ino->indirectPointer,table);
-					if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
-						table[order] = block_store_allocate(fs->BlockStore_whole); // allocate the data block pointed by an entry in the index table
-							//printf("Indirectpointer : %lu\n",order);
-				 	} else {free(ino); return -1;}
-					if(0==block_store_write(fs->BlockStore_whole,ino->indirectPointer,table)){ // update the index table
-						free(ino);
-						return -2;
-					} 
-				} else { // the block is already allocated 
-					if(0==block_store_read(fs->BlockStore_whole,ino->indirectPointer,table)){
-						free(ino);
-						return -3;
+				} else if(0x0000 != ino.indirectPointer && block_store_test(fs->BlockStore_whole,ino.indirectPointer)){
+				// when indirectPointer is alread allocated: (1) the the data block is not allocated (2) data block is allocated	
+					if(block_store_read(fs->BlockStore_whole,ino.indirectPointer,table)){
+						if(0x0000 == table[order]){
+							if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
+								table[order] = block_store_allocate(fs->BlockStore_whole);
+								if(block_store_write(fs->BlockStore_whole,ino.indirectPointer,table)){
+									return table[order];
+								}
+							}
+						} else if(0x0000 != table[order] && block_store_test(fs->BlockStore_whole,table[order])){
+							return table[order];
+						}
 					}
+					printf("indirectPointer set but cannot access\n");
 				}
-				//printf("indirect block address: %d\n",table[count]);
-				return table[order];	
+				printf("indirectPointer %d\n",ino.indirectPointer);
+				return 0;	
 			} else { // the block is pointed by a doubleIndiretPointer
 				uint16_t outerIndexTable[256];
-				memset(outerIndexTable,0x0000,256);
+				memset(outerIndexTable,0x0000,2*256);
 				uint16_t innerIndexTable[256];
-				memset(innerIndexTable,0x0000,256);
-				if(order+256+6>=usedBlockCount){ //the block hasnt been allocated yet
-					if(order==0){ // when the new block is the first entry of the first innerIndexTable of the outerIndexTable pointed by doubleIndirectPointe
-						//printf("outerIndexTable index: %lu,usedBlockCount: %lu\n",order/256,usedBlockCount);
-						if(3<=block_store_get_free_blocks(fs->BlockStore_whole)){
-							ino->doubleIndirectPointer = block_store_allocate(fs->BlockStore_whole);
-							outerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
-							block_store_write(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
-							innerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
-							block_store_write(fs->BlockStore_whole,outerIndexTable[0],innerIndexTable);
-						} else {
-							free(ino); return -4;
+				memset(innerIndexTable,0x0000,2*256);
+				//printf("order: %lu\n",order);
+				if(0x0000 == ino.doubleIndirectPointer){ //the block hasnt been allocated yet
+					//printf("outerIndexTable index: %lu,usedBlockCount: %lu\n",order/256,usedBlockCount);
+					if(3<=block_store_get_free_blocks(fs->BlockStore_whole)){
+						ino.doubleIndirectPointer = block_store_allocate(fs->BlockStore_whole);
+						outerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
+						innerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
+						if(block_store_write(fs->BlockStore_whole,ino.doubleIndirectPointer,outerIndexTable) &&	
+						   block_store_write(fs->BlockStore_whole,outerIndexTable[0],innerIndexTable) &&
+						   block_store_inode_write(fs->BlockStore_inode,fd_t->inodeNum,&ino)){
+							printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[0],order);
+							return innerIndexTable[0];
 						}
-					} else if(order%256==0){ // when the new block is the first entry of a new innerIndexTable
-						if(2<=block_store_get_free_blocks(fs->BlockStore_whole)){
+					} 	
+				} else if(0x0000 != ino.doubleIndirectPointer && block_store_test(fs->BlockStore_whole,ino.doubleIndirectPointer)){
+					if(block_store_read(fs->BlockStore_whole,ino.doubleIndirectPointer,outerIndexTable)){
+						if(0x0000 == outerIndexTable[order/256]){
+						// when the new block is the first entry of a new innerIndexTable
+							if(2<=block_store_get_free_blocks(fs->BlockStore_whole)){
 							//printf("outerIndexTable index: %lu,usedBlockCount: %lu\n",order/256,usedBlockCount);
-							block_store_read(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);
-							outerIndexTable[order/256] = block_store_allocate(fs->BlockStore_whole);
-							block_store_write(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
-							innerIndexTable[0] = block_store_allocate(fs->BlockStore_whole);
-							block_store_write(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable);	
-						} else {
-							free(ino); return -5;
+								outerIndexTable[order/256] = block_store_allocate(fs->BlockStore_whole);
+								innerIndexTable[order%256] = block_store_allocate(fs->BlockStore_whole);
+								if(0!=block_store_write(fs->BlockStore_whole,ino.doubleIndirectPointer,outerIndexTable) && 0!=block_store_write(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable)){
+									printf("? dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
+ 									return innerIndexTable[order%256];
+								}
+							} 	
+						} else if(0x0000 != outerIndexTable[order/256] && block_store_test(fs->BlockStore_whole,outerIndexTable[order/256])){
+							if(block_store_read(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable)){
+								//printf("innerIndex %lu addr: %d\n",order%256,innerIndexTable[order%256]);
+								if(0x0000 == innerIndexTable[order%256]){
+									if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
+										innerIndexTable[order%256] = block_store_allocate(fs->BlockStore_whole);
+										if(block_store_write(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable)){
+											printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
+											return innerIndexTable[order%256];
+										}
+									}	
+								} else if(0x0000 != innerIndexTable[order%256] && block_store_test(fs->BlockStore_whole,innerIndexTable[order%256])){
+									printf("dbIndirect addr: %d, order: %lu\n",innerIndexTable[order%256],order);
+									return innerIndexTable[order%256];
+								}	
+								//printf("Something happened to doubleIndirect 5");
+							}
+							//printf("Something happened to doubleIndirect 4");
 						}
-					} else {// when the new block is in the same innerIndexTable
-						if(1<=block_store_get_free_blocks(fs->BlockStore_whole)){
-							block_store_read(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
-							block_store_read(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable);
-							innerIndexTable[order%256] = block_store_allocate(fs->BlockStore_whole);	
-							block_store_write(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable);
-						} else {
-							free(ino); return -6;
-						}
+						//printf("Something happened to doubleIndirect 3");
 					}
-				} else { // the block is already allocated
-					block_store_read(fs->BlockStore_whole,ino->doubleIndirectPointer,outerIndexTable);	
-					block_store_read(fs->BlockStore_whole,outerIndexTable[order/256],innerIndexTable);
+					//printf("Something happened to doubleIndirect 2");
 				}
-				block_store_inode_write(fs->BlockStore_inode,fd_t->inodeNum,ino);//update the inode
-				free(ino);
-				//printf("double indirect block address: %d\n",innerIndexTable[count]);
-				return innerIndexTable[order%256];
+				printf("Something happened to doubleIndirect");
+				return 0;
 			}
+			//printf("Something happened to doubleIndirect -1");
 		}		
+		//printf("Something happened to doubleIndirect -2\n");
 	} 
+	//printf("Something happened to doubleIndirect -3\n");
 }
 
 //
@@ -674,76 +699,66 @@ ssize_t fs_write(F17FS_t *fs, int fd, const void *src, size_t nbyte){
 			if(0==block_store_fd_read(fs->BlockStore_fd,fd,&fd_t)){
 				return -2;
 			} else {
-				//printf("Free blocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
-				// File size up until the fd pointer
-				size_t locSize = getFileSize(&fd_t);
-				// calculate number of data blocks needed to store the src data including the block the offset is at
-				size_t blocksNeeded = ceil((nbyte+fd_t.locate_offset)/512.0);
-				// get the number of available blocks 
-				size_t freeBlocks = block_store_get_free_blocks(fs->BlockStore_whole);
-				if(freeBlocks == SIZE_MAX){
-					return -3;
-				} else {
-					if(blocksNeeded>freeBlocks){
-					blocksNeeded = freeBlocks;
-					}
-					
-					size_t writtenBytes = 0;
-					// write data to the first block starting where the current fd pointer is at
-					size_t i=0;	
-					for(;i<blocksNeeded;i++){
-						//if(200 >= block_store_get_free_blocks(fs->BlockStore_whole)){
-						//	printf("Free blocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
-						//}
-						if(0<block_store_get_free_blocks(fs->BlockStore_whole)){ 
-							ssize_t blockID = get_data_block_id(fs,&fd_t); // get the block id where the fd offset is at
-							if(blockID>=0){ 
-								if(fd_t.locate_offset + nbyte - writtenBytes < BLOCK_SIZE_BYTES){ // the last block to write 
-									if(0!=block_store_n_write(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes,nbyte-writtenBytes)){
-										fd_t.locate_offset += (nbyte - writtenBytes); // update locate_offset
-										writtenBytes += (nbyte-writtenBytes);		
-										break; // finish writing
-									} 
-									return -5;
-								} else { 
-									if(0!=block_store_n_write(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes,BLOCK_SIZE_BYTES-fd_t.locate_offset)){
-										writtenBytes += (BLOCK_SIZE_BYTES - fd_t.locate_offset);
-										fd_t.locate_offset = 0;//update locate_offset
-										// update locate_order
-										if(fd_t.usage==1&&fd_t.locate_order== (DIRECT_BLOCKS-1)){ // directPointer space is full
-											fd_t.locate_order = 0;
-											fd_t.usage = 2;
-											//printf("dip into indirect blocks\n");
-										} else if(fd_t.usage==2&&fd_t.locate_order== (INDIRECT_BLOCKS-1)){ // indirectPointer space is full
-											fd_t.locate_order = 0;
-											fd_t.usage = 4;
-											//printf("dip into double indirect blocks\n");
-										} else { // as long as not exceeding the double inidirect max, unlikely
-											fd_t.locate_order += 1;
-										}
-										continue;
-									} 
-									//printf("offset: %d, bytes: %d\n",fd_t.locate_offset,512-fd_t.locate_offset);
-									//printf("freeBlocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
-									return -6; 
+				printf("Free blocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
+				size_t locSize = getFileSize(&fd_t); 
+				size_t writtenBytes = 0;
+				printf("start writing:\n");
+				// write data to the first block starting where the current fd pointer is at	
+				while(nbyte - writtenBytes > 0){
+					uint16_t blockID = get_data_block_id(fs,&fd_t); 
+					//printf("Free blocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
+					//printf("blockID: %d\n",blockID);
+					if(0 < blockID){
+						if(fd_t.locate_offset + nbyte - writtenBytes < BLOCK_SIZE_BYTES){ // the last block to write 
+							if(0!=block_store_n_write(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes,nbyte-writtenBytes)){
+								fd_t.locate_offset += (nbyte - writtenBytes); // update locate_offset
+								writtenBytes = nbyte;		
+								break; // finish writing
+							}
+							printf("blockID: %d,offset: %d, nbyte: %lu, writtenBytes: %lu\n",blockID,fd_t.locate_offset,nbyte,writtenBytes); 
+							return -5;
+						} else { 
+							if(0!=block_store_n_write(fs->BlockStore_whole,blockID,fd_t.locate_offset,src+writtenBytes,BLOCK_SIZE_BYTES-fd_t.locate_offset)){
+								writtenBytes += (BLOCK_SIZE_BYTES - fd_t.locate_offset);
+								fd_t.locate_offset = 0;//update locate_offset
+								// update locate_order
+								if(fd_t.usage==1&&fd_t.locate_order== (DIRECT_BLOCKS-1)){ // directPointer space is full
+									fd_t.locate_order = 0;
+									fd_t.usage = 2;
+									//printf("dip into indirect blocks\n");
+								} else if(fd_t.usage==2&&fd_t.locate_order== (INDIRECT_BLOCKS-1)){ // indirectPointer space is full
+									fd_t.locate_order = 0;
+									fd_t.usage = 4;
+									//printf("dip into double indirect blocks\n");
+								} else { // as long as not exceeding the double inidirect max, unlikely
+									fd_t.locate_order += 1;
 								}
-							} else {
-								break;
-							}	
-						} else {
-							break;
+								/*if(fd_t.locate_order >= 2559){
+									printf("blockID: %d,offset: %d, nbyte: %lu, writtenBytes: %lu\n",blockID,fd_t.locate_offset,nbyte,writtenBytes); 
+								}*/
+								continue;
+							} 
+							//printf("offset: %d, bytes: %d\n",fd_t.locate_offset,512-fd_t.locate_offset);
+							//printf("freeBlocks: %lu\n",block_store_get_free_blocks(fs->BlockStore_whole));
+							printf("blockID: %d,offset: %d, nbyte: %lu, writtenBytes: %lu\n",blockID,fd_t.locate_offset,nbyte,writtenBytes); 
+							printf("Used blocks: %lu\n",block_store_get_used_blocks(fs->BlockStore_whole));
+							return -6; 
 						}
-					}
-					inode_t fileInode;
-					block_store_inode_read(fs->BlockStore_inode,fd_t.inodeNum,&fileInode);
-					if(fileInode.fileSize < locSize + writtenBytes){ // Need to recalculate
-						fileInode.fileSize = locSize + writtenBytes;
-					}
-					if(0!=block_store_fd_write(fs->BlockStore_fd,fd,&fd_t) && 0!=block_store_inode_write(fs->BlockStore_inode,fd_t.inodeNum,&fileInode)){
+					} else {
+					printf("error on getting block id: %d,order:%d\n",blockID,fd_t.locate_order);
+					break;
+					}	
+				} 
+				inode_t fileInode;
+				block_store_inode_read(fs->BlockStore_inode,fd_t.inodeNum,&fileInode);
+				if(fileInode.fileSize < locSize + writtenBytes){ // Need to recalculate
+					fileInode.fileSize = locSize + writtenBytes;
+				}
+				if(0!=block_store_fd_write(fs->BlockStore_fd,fd,&fd_t) && 0!=block_store_inode_write(fs->BlockStore_inode,fd_t.inodeNum,&fileInode)){
+					printf("Finish writing: %lu\n",writtenBytes);
 					return writtenBytes;
-					} else {return -8;}							
-
-				}	
+				} else {return -8;}							
+	
 			}
 		}
 	}
@@ -817,23 +832,23 @@ int fs_remove(F17FS_t *fs, const char *path) {
 		} else if(fileInode.fileType=='r') { // if the file to remove is file
 			int i=0;
 			for(; i<6; i++){ // if the directPointer is allocated, release those memory addresses first
-				if(block_store_test(fs->BlockStore_whole,fileInode.directPointer[i])){
+				if(0x0000 != fileInode.directPointer[i] && block_store_test(fs->BlockStore_whole,fileInode.directPointer[i])){
 					block_store_release(fs->BlockStore_whole,fileInode.directPointer[i]);	
 				}	
 			}
-			if(block_store_test(fs->BlockStore_whole,fileInode.indirectPointer)){// if the indirectPointer is allocated, 
+			if(0x0000 != fileInode.indirectPointer && block_store_test(fs->BlockStore_whole,fileInode.indirectPointer)){// if the indirectPointer is allocated, 
 				uint16_t indexTable[256];
 				if(block_store_read(fs->BlockStore_whole,fileInode.indirectPointer,indexTable)){
 					int j=0;
 					for(; j<256; j++){ // release all the secondary memory addresses 
-						if(indexTable[j]!=0x0000 && block_store_test(fs->BlockStore_whole,indexTable[j])){
+						if(0x0000 != indexTable[j] && block_store_test(fs->BlockStore_whole,indexTable[j])){
 							block_store_release(fs->BlockStore_whole,indexTable[j]);	
 						}	
 					}
 				}
 				block_store_release(fs->BlockStore_whole,fileInode.indirectPointer);	
 			}
-			if(block_store_test(fs->BlockStore_whole,fileInode.doubleIndirectPointer)){// if the doubleIndirectPointer is allocated, 
+			if(0x0000 != fileInode.doubleIndirectPointer && block_store_test(fs->BlockStore_whole,fileInode.doubleIndirectPointer)){// if the doubleIndirectPointer is allocated, 
 				uint16_t outerIndexTable[256];
 				uint16_t innerIndexTable[256];
 				if(block_store_read(fs->BlockStore_whole,fileInode.doubleIndirectPointer,outerIndexTable)){
@@ -998,8 +1013,8 @@ ssize_t fs_read(F17FS_t *fs, int fd, void *dst, size_t nbyte){
 				}
 				size_t readBytes = 0;
 				while(nbyte - readBytes > 0){
-					ssize_t blockID = get_data_block_id(fs,&fd_t); // Get the data block to read	
-					if(blockID >= 0){
+					uint16_t blockID = get_data_block_id(fs,&fd_t); // Get the data block to read	
+					if(blockID > 0){
 						if(fd_t.locate_offset + nbyte - readBytes < BLOCK_SIZE_BYTES){
 							// Need a special read method here to write less than BLOCK_SIZE_BYTES
 							if(0 != block_store_n_read(fs->BlockStore_whole,blockID,fd_t.locate_offset,dst+readBytes,nbyte-readBytes)){

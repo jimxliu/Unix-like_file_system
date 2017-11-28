@@ -649,7 +649,7 @@ TEST(d_tests, write_file_fill) {
     9. Error, NULL fname
     10. Error, Empty fname (same as file does not exist?)
 */
-
+/*
 TEST(e_tests, remove_file) {
     vector<const char *> b_fnames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -699,7 +699,7 @@ TEST(e_tests, remove_file) {
     fs_unmount(fs);
     score += 15;
 }
-
+*/
 /*
     off_t fs_seek(F17FS *fs, int fd, off_t offset, seek_t whence)
     1. Normal, wherever, really - make sure it doesn't change a second fd to the file
@@ -709,7 +709,7 @@ TEST(e_tests, remove_file) {
     5. Error, fd invalid
     6. Error, whence not a valid value
 */
-
+/*
 TEST(g_tests, seek) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -748,7 +748,7 @@ TEST(g_tests, seek) {
     ASSERT_LT(position, 0);
     fs_unmount(fs);
     score += 13;
-}
+}*/
 /*
     ssize_t fs_read(F17FS *fs, int fd, void *dst, size_t nbyte);
     1. Normal, begin to < 1 block
@@ -763,7 +763,7 @@ TEST(g_tests, seek) {
     10. Normal, nbyte 0
     11. Normal, at EOF
 */
-
+/*
 TEST(h_tests, read) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -840,7 +840,7 @@ TEST(h_tests, read) {
     fs_unmount(fs);
     score += 20;
 }
-
+*/
 #ifdef GRAD_TESTS
 // <<<<<<< HEAD
 // =======
@@ -1009,3 +1009,4 @@ int main(int argc, char **argv) {
     ::testing::AddGlobalTestEnvironment(new GradeEnvironment);
     return RUN_ALL_TESTS();
 }
+

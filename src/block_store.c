@@ -234,10 +234,10 @@ bool block_store_test(block_store_t *const bs, const size_t block_id) {
     bool blockUsed = 0;
     blockUsed = bitmap_test(bs->fbm, block_id); // check if the block is in use
     if (blockUsed) { // if this block is already in use
-        return false;
+        return true;
     }
     else { // if this block is not in use
-        return true;
+        return false;
     }
 }
 
@@ -400,7 +400,7 @@ size_t block_store_write(block_store_t *const bs, const size_t block_id, const v
 /// \return Number of bytes written, 0 on error
 ///
 size_t block_store_n_write(block_store_t *const bs, const size_t block_id, size_t offset, const void *buffer, size_t bytes){
-    if (bs && buffer && block_id <= BLOCK_STORE_AVAIL_BLOCKS && offset < 512 && offset + bytes <= BLOCK_SIZE_BYTES) {
+    if (bs && buffer && block_id <= BLOCK_STORE_AVAIL_BLOCKS && offset < 512 && (offset + bytes) <= BLOCK_SIZE_BYTES) {
         memcpy(bs->data_blocks+block_id*BLOCK_SIZE_BYTES+offset, buffer, bytes);
         return bytes;
     }
