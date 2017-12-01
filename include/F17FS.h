@@ -164,4 +164,7 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path);
 ///
 int fs_move(F17FS_t *fs, const char *src, const char *dst);
 
+// All hardlinked files having same data and meta data except naming differences
+// return 0 on success, or < 0 on error
+int fs_link(F17FS_t *fs, const char *src, const char *dst);
 #endif

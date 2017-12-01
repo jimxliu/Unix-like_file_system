@@ -553,7 +553,7 @@ TEST(d_tests, write_file_simple) {
     fs_unmount(fs);
     
 }
-
+/*
 TEST(d_tests, write_file_fill) {
     // Still gotta test write 6,7,8,9
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
@@ -635,7 +635,7 @@ TEST(d_tests, write_file_fill) {
     fs_unmount(fs);
     score += 15;
 }
-
+*/
 /* 0-33 34-65519 65520-65535
     int fs_remove(F17FS *fs, const char *path);
     1. Normal, file at root
@@ -709,7 +709,7 @@ TEST(e_tests, remove_file) {
     5. Error, fd invalid
     6. Error, whence not a valid value
 */
-
+/*
 TEST(g_tests, seek) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -748,7 +748,7 @@ TEST(g_tests, seek) {
     ASSERT_LT(position, 0);
     fs_unmount(fs);
     score += 13;
-}
+}*/
 /*
     ssize_t fs_read(F17FS *fs, int fd, void *dst, size_t nbyte);
     1. Normal, begin to < 1 block
@@ -763,7 +763,7 @@ TEST(g_tests, seek) {
     10. Normal, nbyte 0
     11. Normal, at EOF
 */
-
+/*
 TEST(h_tests, read) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -840,7 +840,7 @@ TEST(h_tests, read) {
     fs_unmount(fs);
     score += 20;
 }
-
+*/
 #ifdef GRAD_TESTS
 // <<<<<<< HEAD
 // =======
@@ -863,7 +863,7 @@ TEST(h_tests, read) {
     14. Error, Directory into itself
 */
 // >>>>>>> 58bbb8583cb104fd9b32d97baac6b9c3de8a5942
-/*
+
 TEST(i_tests, move) {
     vector<const char *> fnames{
         "/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
@@ -979,7 +979,7 @@ TEST(i_tests, move) {
     fs_unmount(fs);
     score += 15;
 }
-*/
+
 /*
     int fs_link(F17FS *fs, const char *src, const char *dst);
 	Finish this part, get 20 points!
@@ -999,9 +999,24 @@ TEST(i_tests, move) {
     13. Error, dst null
     14. Error, dst root
 */
-/*TEST(j_tests, link) {
-    
-}*/
+TEST(j_tests, link) {
+	vector<const char *> fnames{
+		"/file", "/folder", "/folder/with_file", "/folder/with_folder", "/DOESNOTEXIST", "/file/BAD_REQUEST",
+		"/DOESNOTEXIST/with_file", "/folder/with_file/bad_req", "folder/missing_slash", "/folder/new_folder/",
+		"/folder/withwaytoolongfilenamethattakesupmorespacethanitshould and yet was not enough so I had to add "
+		"more/bad_req",
+		"/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobigEXACT!", "/", "/mystery_file"};
+	const char *test_fname = "h_tests.F17FS";
+	ASSERT_EQ(system("cp c_tests.F17FS h_tests.F17FS"), 0);
+	F17FS *fs = fs_mount(test_fname);
+	ASSERT_NE(fs, nullptr);
+	int fd = fs_open(fs, fnames[0]);
+	// FS_LINK 1
+	dyn_array_t *record_results = NULL;
+	ASSERT_EQ(fs_link(fs,fnames[2],"/folder/with_new_file"),0);
+		
+	fs_unmount(fs);
+}
 #endif
 
 int main(int argc, char **argv) {

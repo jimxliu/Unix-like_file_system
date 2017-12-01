@@ -347,12 +347,13 @@ int fs_create(F17FS_t *fs, const char *path, file_t type){
 	newInode.fileType = fileType;
 	if(fileType == 'd'){ // If create a directory
 		newInode.vacantFile = 0x00;
-		directoryBlock_t newDirBlock;
-		if(SIZE_MAX == block_store_allocate(fs->BlockStore_whole)){
+		// allocate a block for the directory entries
+		size_t directoryBlockPointer = block_store_allocate(fs->BlockStore_whole);
+		if(SIZE_MAX == directoryBlockPointer){
 			return -12;
 		} 
-		// allocate a block for the directory entries
-		newInode.directPointer[0] = block_store_allocate(fs->BlockStore_whole);
+		newInode.directPointer[0] = directoryBlockPointer;
+		directoryBlock_t newDirBlock = init_dirBlock();
 		block_store_write(fs->BlockStore_whole, newInode.directPointer[0],&newDirBlock);
 		newInode.fileSize = BLOCK_SIZE_BYTES;	
 	} else { // If to create a file
@@ -800,7 +801,7 @@ int fs_remove(F17FS_t *fs, const char *path) {
 		}
 		inode_t fileInode;
 		block_store_inode_read(fs->BlockStore_inode,fileInodeID,&fileInode);
-		if(fileInode.fileType=='d'){
+		if(fileInode.fileType=='d' && fileInode.linkCount == 1){
 		// If the file is a dir, delete it only if it is empty, meaning vacantFile == 0x00
 			if(fileInode.vacantFile == 0x00){
 				// To delete a dir, remove its entry from the directory block of its parent inode
@@ -829,7 +830,7 @@ int fs_remove(F17FS_t *fs, const char *path) {
 			}
 			//printf("Dir %s not empty,vacantFile: %d\n",path,fileInode.vacantFile); 
 			return -5;
-		} else if(fileInode.fileType=='r') { // if the file to remove is file
+		} else if(fileInode.fileType=='r' && fileInode.linkCount == 1) { // if the file to remove is file
 			int i=0;
 			for(; i<6; i++){ // if the directPointer is allocated, release those memory addresses first
 				if(0x0000 != fileInode.directPointer[i] && block_store_test(fs->BlockStore_whole,fileInode.directPointer[i])){
@@ -1051,5 +1052,202 @@ ssize_t fs_read(F17FS_t *fs, int fd, void *dst, size_t nbyte){
 		}
 		return 0;
 	} 
+	return -1;
+}
+
+
+/// Moves the file from one location to the other
+///   Moving files does not affect open descriptors
+/// \param fs The F17FS containing the file
+/// \param src Absolute path of the file to move
+/// \param dst Absolute path to move the file to
+/// \return 0 on success, < 0 on error
+///
+int fs_move(F17FS_t *fs, const char *src, const char *dst){
+	if(fs && src && dst ){ // FS, src and dst must not be NULL
+		// Check if src is a valid file or dir, it must exist and must not be root. dst cannot be root either
+		// The path must start with '/'
+		char firstChar_src = *src;
+		char firstChar_dst = *dst;
+		if(0 != strcmp(src,"/") && 0 != strcmp(dst,"/") && firstChar_src == '/' && firstChar_dst == '/'){
+			// Get the dirname and basename of src
+			char src_dirc[strlen(src)+1];
+			char src_basec[strlen(src)+1];
+			strcpy(src_dirc,src);
+			strcpy(src_basec,src);
+			char *src_dir = dirname(src_dirc);
+			char *src_base = basename(src_basec);
+			// Get the dirname and basename of dst
+			char dst_dirc[strlen(dst)+1];				
+			char dst_basec[strlen(dst)+1];
+			strcpy(dst_dirc,dst);
+			strcpy(dst_basec,dst);
+			char *dst_dir = dirname(dst_dirc);
+			char *dst_base = basename(dst_basec);
+			
+			size_t src_parentDirInodeID = searchPath(fs,src_dir);// src parent dir inode number 
+			size_t dst_parentDirInodeID = searchPath(fs,dst_dir);// dst parent dir inode numbeir
+			// Parent directories of both src and dst must exist
+			// Make sure the src basename is not one of the parent dir names of the dst
+			// src cannot be the parent directory or above of dst
+			if((!(strlen(src) < strlen(dst) && 0 == strncmp(src,dst,strlen(src)))) && src_parentDirInodeID != SIZE_MAX && dst_parentDirInodeID != SIZE_MAX){
+				size_t src_inodeID = getFileInodeID(fs,src_parentDirInodeID,src_base);
+				size_t dst_inodeID = getFileInodeID(fs,dst_parentDirInodeID,dst_base);
+				// src inode must exist, but dst inode must not
+				if(src_inodeID != 0 && dst_inodeID == 0){
+					// If src and dst under same parent dir, just change the entry name of the src to dst_base
+					if(src_parentDirInodeID == dst_parentDirInodeID){
+						inode_t src_parentDirInode;
+						directoryBlock_t src_parentDirBlock;
+						if(block_store_inode_read(fs->BlockStore_inode,src_parentDirInodeID,&src_parentDirInode) && 
+							block_store_read(fs->BlockStore_whole,src_parentDirInode.directPointer[0],&src_parentDirBlock))
+						{	 
+							size_t i=0;
+							for(;i<7;i++){
+								// If the entry name and inode number match those of the src, change the name of src to that of the dst
+								if(src_parentDirBlock.dentries[i].inodeNumber == src_inodeID && 0 == strcmp(src_parentDirBlock.dentries[i].filename,src_base)){
+									// Change the file name but not the inode number
+									strcpy(src_parentDirBlock.dentries[i].filename,dst_base);
+									if(block_store_write(fs->BlockStore_whole,src_parentDirInode.directPointer[0],&src_parentDirBlock)){
+										return 0;// Success	
+									}
+								}
+							}
+							return -6;	
+						}		
+						return -5;
+					} else {
+						// ...If not under the same directory, add the src file or dir under the parent directory of dst
+						// ...and remove the src file or dir entry from the parent directory of src
+						// Since we rule out the possibility of src being parent of the dst, no worries about that
+						// First, check if the dst parent directory is full
+						inode_t dst_parentDirInode;
+						inode_t src_parentDirInode;
+						directoryBlock_t dst_parentDirBlock;	
+						directoryBlock_t src_parentDirBlock;	
+						if(block_store_inode_read(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode) && block_store_read(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock) && block_store_inode_read(fs->BlockStore_inode,src_parentDirInodeID,&src_parentDirInode) && block_store_read(fs->BlockStore_whole,src_parentDirInode.directPointer[0],&src_parentDirBlock))
+						{
+							bitmap_t *dst_bmp = bitmap_overlay(8,&(dst_parentDirInode.vacantFile));
+							bitmap_t *src_bmp = bitmap_overlay(8,&(src_parentDirInode.vacantFile));
+							if(dst_bmp && src_bmp){
+								size_t i=0;
+								for(;i<7;i++){
+									// Select an empty entry, and set it to the name of dst and inode number of the src
+									if(!bitmap_test(dst_bmp,i)){
+										bitmap_set(dst_bmp,i);
+										strcpy(dst_parentDirBlock.dentries[i].filename,dst_base);
+										dst_parentDirBlock.dentries[i].inodeNumber = src_inodeID;
+										size_t j=0;
+										for(;j<7;j++){
+											// Remove the src file entry from its parent dir file block
+											if(src_parentDirBlock.dentries[j].inodeNumber == src_inodeID){
+												bitmap_reset(src_bmp,j);
+												memset(src_parentDirBlock.dentries[j].filename,'\0',FS_FNAME_MAX) ;
+												src_parentDirBlock.dentries[j].inodeNumber = 0x00;
+												// Update the parent directory inodes and file blocks of both dst and src
+												if(block_store_write(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock)
+												&& block_store_write(fs->BlockStore_whole,src_parentDirInode.directPointer[0],&src_parentDirBlock)
+												&& block_store_inode_write(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode)
+												&& block_store_inode_write(fs->BlockStore_inode,src_parentDirInodeID,&src_parentDirInode)) {
+													bitmap_destroy(dst_bmp);
+													bitmap_destroy(src_bmp);
+													return 0;
+												}
+												bitmap_destroy(dst_bmp);
+												bitmap_destroy(src_bmp);
+												return -10;	
+											}
+										}
+										
+									}
+								}
+								bitmap_destroy(dst_bmp);
+								bitmap_destroy(src_bmp);
+								return -9;	
+							}	
+							return -8;
+						}
+						return -7;
+					}
+				}
+				//printf("src_base:%s, dst_base:%s\n",src_base,dst_base);
+				//printf("srcInodeID:%lu, dstInodeID:%lu\n",src_inodeID,dst_inodeID);
+				return -4;
+			}
+			return -3;
+		}
+		return -2;	
+	}
+	return -1;
+}
+
+
+// Hardlink dst to the src.
+// All hardlinked files having same data and meta data except naming differences
+// Return 0 on success, or < 0 on error
+int fs_link(F17FS_t *fs, const char *src, const char *dst){
+	if(fs && src && dst){
+		char firstChar_src = *src;
+		char firstChar_dst = *dst;
+		if(0 != strcmp(dst,"/") && firstChar_src == '/' && firstChar_dst == '/'){
+      		 // Get the dirname and basename of src
+       		char src_dirc[strlen(src)+1];
+	    	char src_basec[strlen(src)+1];
+	    	strcpy(src_dirc,src);
+			strcpy(src_basec,src);
+			char *src_dir = dirname(src_dirc);
+			char *src_base = basename(src_basec);
+			// Get the dirname and basename of dst
+			char dst_dirc[strlen(dst)+1];				
+			char dst_basec[strlen(dst)+1];
+			strcpy(dst_dirc,dst);
+			strcpy(dst_basec,dst);
+			char *dst_dir = dirname(dst_dirc);
+			char *dst_base = basename(dst_basec);
+		
+			size_t src_parentDirInodeID = searchPath(fs,src_dir);// src parent dir inode number 
+			size_t dst_parentDirInodeID = searchPath(fs,dst_dir);// dst parent dir inode numbeir
+			// Parent directories of both src and dst must exist
+			// Make sure the src basename is not one of the parent dir names of the dst
+			// src cannot be the parent directory or above of dst
+			if(src_parentDirInodeID != SIZE_MAX && dst_parentDirInodeID != SIZE_MAX){
+				size_t src_inodeID = getFileInodeID(fs,src_parentDirInodeID,src_base);
+				size_t dst_inodeID = getFileInodeID(fs,dst_parentDirInodeID,dst_base);
+				// src inode must exist, but dst inode must not
+				if(src_inodeID != 0 && dst_inodeID == 0){
+					// Check if the dst parent dir is full	
+					inode_t dst_parentDirInode;
+					inode_t src_inode;
+					directoryBlock_t dst_parentDirBlock;
+					if(block_store_inode_read(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode) && block_store_inode_read(fs->BlockStore_inode,src_inodeID,&src_inode) && block_store_read(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock)) {
+						bitmap_t *bmp = bitmap_overlay(8,&(dst_parentDirInode.vacantFile));
+						if(bmp){
+							size_t i = 0;
+							for(;i<7;i++){
+								// Find an empty entry and set filename to the dst_base and inodeNumber to src_inodeID
+								if(!bitmap_test(bmp,i)){
+									strncpy(dst_parentDirBlock.dentries[i].filename,dst_base,FS_FNAME_MAX);
+									dst_parentDirBlock.dentries[i].inodeNumber = src_inodeID;
+									// Increment linkCount by 1
+									src_inode.linkCount += 1;
+									bitmap_set(bmp,i);
+									if(block_store_inode_write(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode) && block_store_inode_write(fs->BlockStore_inode,src_inodeID,&src_inode) && block_store_write(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock)){
+										bitmap_destroy(bmp);
+										return 0;
+									}	
+								}
+							}
+							return -7;	
+						}
+						return -6;
+					}
+					return -5;	
+				}
+				return -4;
+			}
+			return -3;
+		}
+		return -2;		
+	}
 	return -1;
 }
