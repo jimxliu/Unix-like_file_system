@@ -801,7 +801,7 @@ int fs_remove(F17FS_t *fs, const char *path) {
 		}
 		inode_t fileInode;
 		block_store_inode_read(fs->BlockStore_inode,fileInodeID,&fileInode);
-		if(fileInode.fileType=='d' && fileInode.linkCount == 1){
+		if(fileInode.fileType=='d'){
 		// If the file is a dir, delete it only if it is empty, meaning vacantFile == 0x00
 			if(fileInode.vacantFile == 0x00){
 				// To delete a dir, remove its entry from the directory block of its parent inode
@@ -823,67 +823,90 @@ int fs_remove(F17FS_t *fs, const char *path) {
 				//printf("Dir %s after clear file,vacantFile: %d\n",path,dirInode.vacantFile); 
 				bitmap_destroy(bmp);
 				block_store_inode_write(fs->BlockStore_inode,dirInodeID,&dirInode);
-				// Remove its file block pointed by directPointer[0], then remove its inode from inode table
-				block_store_release(fs->BlockStore_whole,fileInode.directPointer[0]);
-				block_store_sub_release(fs->BlockStore_inode,fileInodeID);
-				return 0;
+				// If the directory file inode is not hardlinked to any other file
+				if(fileInode.linkCount <= 1) {
+					// Remove its file block pointed by directPointer[0], then remove its inode from inode table
+					block_store_release(fs->BlockStore_whole,fileInode.directPointer[0]);
+					block_store_sub_release(fs->BlockStore_inode,fileInodeID);
+					//printf("Success Dir %s not empty,vacantFile: %d\n",path,dirInode.vacantFile); 
+					return 0;
+				} else {
+					fileInode.linkCount -= 1;
+					if(block_store_inode_write(fs->BlockStore_inode,fileInodeID,&fileInode)){
+						//printf("Success Dir %s not empty,vacantFile: %d\n",path,dirInode.vacantFile); 
+						return 0;
+					}
+				}
+				return -8;
 			}
-			//printf("Dir %s not empty,vacantFile: %d\n",path,fileInode.vacantFile); 
+			//printf("ErrorDir %s not empty,vacantFile: %d\n",path,fileInode.vacantFile); 
 			return -5;
-		} else if(fileInode.fileType=='r' && fileInode.linkCount == 1) { // if the file to remove is file
-			int i=0;
-			for(; i<6; i++){ // if the directPointer is allocated, release those memory addresses first
-				if(0x0000 != fileInode.directPointer[i] && block_store_test(fs->BlockStore_whole,fileInode.directPointer[i])){
-					block_store_release(fs->BlockStore_whole,fileInode.directPointer[i]);	
+		} else if(fileInode.fileType=='r') { // if the file to remove is file
+			if(fileInode.linkCount > 1){ 
+				// If the file inode is referenced by more than one link, then just decrement the linkCount by 1 and update the inode 
+				fileInode.linkCount -= 1;
+				// Update the file inode
+				if(0 == block_store_inode_write(fs->BlockStore_inode,fileInodeID,&fileInode)){
+					return -11;
 				}	
-			}
-			if(0x0000 != fileInode.indirectPointer && block_store_test(fs->BlockStore_whole,fileInode.indirectPointer)){// if the indirectPointer is allocated, 
-				uint16_t indexTable[256];
-				if(block_store_read(fs->BlockStore_whole,fileInode.indirectPointer,indexTable)){
-					int j=0;
-					for(; j<256; j++){ // release all the secondary memory addresses 
-						if(0x0000 != indexTable[j] && block_store_test(fs->BlockStore_whole,indexTable[j])){
-							block_store_release(fs->BlockStore_whole,indexTable[j]);	
-						}	
-					}
+			} else { // If the file inode is only referened by one link, delete the content of the inode
+				int i=0;
+				for(; i<6; i++){ // if the directPointer is allocated, release those memory addresses first
+					if(0x0000 != fileInode.directPointer[i] && block_store_test(fs->BlockStore_whole,fileInode.directPointer[i])){
+						block_store_release(fs->BlockStore_whole,fileInode.directPointer[i]);	
+					}	
 				}
-				block_store_release(fs->BlockStore_whole,fileInode.indirectPointer);	
-			}
-			if(0x0000 != fileInode.doubleIndirectPointer && block_store_test(fs->BlockStore_whole,fileInode.doubleIndirectPointer)){// if the doubleIndirectPointer is allocated, 
-				uint16_t outerIndexTable[256];
-				uint16_t innerIndexTable[256];
-				if(block_store_read(fs->BlockStore_whole,fileInode.doubleIndirectPointer,outerIndexTable)){
-					int j=0;
-				for(; j<256; j++){ // release all the secondary memory addresses 
-						if(outerIndexTable[j]!=0x0000 && block_store_test(fs->BlockStore_whole,outerIndexTable[j])){			
-							if(block_store_read(fs->BlockStore_whole,outerIndexTable[j],innerIndexTable)){
-								int k=0;
-								for(; k<256; k++){ // release all the secondary memory addresses 
-									if(innerIndexTable[k]!=0x0000 && block_store_test(fs->BlockStore_whole,innerIndexTable[k])){
-										block_store_release(fs->BlockStore_whole,innerIndexTable[k]);	
-									}	
-								}
-							}
-							block_store_release(fs->BlockStore_whole,outerIndexTable[j]);	
-						}	
-					}
-				}
-				block_store_release(fs->BlockStore_whole,fileInode.doubleIndirectPointer);	
-			}
-			int fd_count=0;
-			for(;fd_count<256;fd_count++){ // close all fd pointing to the file
-				if(block_store_sub_test(fs->BlockStore_fd,fd_count)){
-					fileDescriptor_t fd_t;
-					if(0!=block_store_fd_read(fs->BlockStore_fd,fd_count,&fd_t)){
-						if(fd_t.inodeNum==fileInodeID){
-							fs_close(fs,fd_count);
+				if(0x0000 != fileInode.indirectPointer && block_store_test(fs->BlockStore_whole,fileInode.indirectPointer)){// if the indirectPointer is allocated, 
+					uint16_t indexTable[256];
+					memset(indexTable,0x0000,512);
+					if(block_store_read(fs->BlockStore_whole,fileInode.indirectPointer,indexTable)){
+						int j=0;
+						for(; j<256; j++){ // release all the secondary memory addresses 
+							if(0x0000 != indexTable[j] && block_store_test(fs->BlockStore_whole,indexTable[j])){
+								block_store_release(fs->BlockStore_whole,indexTable[j]);	
+							}	
 						}
-					}
-					return -7;
+					} else {return -11;}
+					block_store_release(fs->BlockStore_whole,fileInode.indirectPointer);	
 				}
+				if(0x0000 != fileInode.doubleIndirectPointer && block_store_test(fs->BlockStore_whole,fileInode.doubleIndirectPointer)){// if the doubleIndirectPointer is allocated, 
+					uint16_t outerIndexTable[256];
+					memset(outerIndexTable,0x0000,512);
+					uint16_t innerIndexTable[256];
+					memset(innerIndexTable,0x0000,512);
+					if(block_store_read(fs->BlockStore_whole,fileInode.doubleIndirectPointer,outerIndexTable)){
+						int j=0;
+						for(; j<256; j++){ // release all the secondary memory addresses 
+							if(outerIndexTable[j]!=0x0000 && block_store_test(fs->BlockStore_whole,outerIndexTable[j])){			
+								if(block_store_read(fs->BlockStore_whole,outerIndexTable[j],innerIndexTable)){
+									int k=0;
+									for(; k<256; k++){ // release all the secondary memory addresses 
+										if(innerIndexTable[k]!=0x0000 && block_store_test(fs->BlockStore_whole,innerIndexTable[k])){
+											block_store_release(fs->BlockStore_whole,innerIndexTable[k]);	
+										} 
+									}
+								} else {return -10;}
+								block_store_release(fs->BlockStore_whole,outerIndexTable[j]);	
+							} 	
+						}
+					} else {return -9;}
+					block_store_release(fs->BlockStore_whole,fileInode.doubleIndirectPointer);	
+				}
+				int fd_count=0;
+				for(;fd_count<256;fd_count++){ // close all fd pointing to the file
+					if(block_store_sub_test(fs->BlockStore_fd,fd_count)){
+						fileDescriptor_t fd_t;
+						if(block_store_fd_read(fs->BlockStore_fd,fd_count,&fd_t)){
+							if(fd_t.inodeNum==fileInodeID){
+								fs_close(fs,fd_count);
+							}
+						}
+						return -7;
+					}
+				}
+				block_store_sub_release(fs->BlockStore_inode,fileInodeID);
 			}
-
-			// Remduce one bit from vacantFile
+			// Remove the file entry in the parent directory data block by reducing one bit from vacantFile
 			inode_t dirInode; // The inode for the parent directory containing the file
 			block_store_inode_read(fs->BlockStore_inode,dirInodeID,&dirInode);
 			//dirInode.vacantFile >>= 1 ; // Cannot do this, would mess up the directory file block
@@ -894,16 +917,21 @@ int fs_remove(F17FS_t *fs, const char *path) {
 			int m=0;
 			for(;m<7; m++){
 				if(bitmap_test(bmp,m)){
-					if(fileInodeID == db_t.dentries[m].inodeNumber /* && 0 < parentDir.dentries[k].inodeNumber*/){
+					if(0 == strncmp(db_t.dentries[m].filename,baseFileName,FS_FNAME_MAX) /* && 0 < parentDir.dentries[k].inodeNumber*/){
 						bitmap_reset(bmp,m);	
+						strncmp(db_t.dentries[m].filename,"\0",FS_FNAME_MAX);
+						db_t.dentries[m].inodeNumber = 0x0000;
 						break;
 					}
 				}
 			}
 			//printf("Dir %s after clear file,vacantFile: %d\n",path,dirInode.vacantFile); 
 			bitmap_destroy(bmp);
-			block_store_inode_write(fs->BlockStore_inode,dirInodeID,&dirInode);
-			return 0;
+			if(block_store_write(fs->BlockStore_whole,dirInode.directPointer[0],&db_t) &&	block_store_inode_write(fs->BlockStore_inode,dirInodeID,&dirInode)) {
+				//printf("Success Dir %s not empty,vacantFile: %d\n",path,dirInode.vacantFile); 
+				return 0;
+			}
+			return -12;
 		}
 		return -6;	
 	}
@@ -1219,35 +1247,51 @@ int fs_link(F17FS_t *fs, const char *src, const char *dst){
 					inode_t dst_parentDirInode;
 					inode_t src_inode;
 					directoryBlock_t dst_parentDirBlock;
-					if(block_store_inode_read(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode) && block_store_inode_read(fs->BlockStore_inode,src_inodeID,&src_inode) && block_store_read(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock)) {
+					if(block_store_inode_read(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode) && block_store_inode_read(fs->BlockStore_inode,src_inodeID,&src_inode) && block_store_read(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock) && src_inode.linkCount < 255) {
 						bitmap_t *bmp = bitmap_overlay(8,&(dst_parentDirInode.vacantFile));
 						if(bmp){
+							//printf("dst path: %s\n",dst);
 							size_t i = 0;
 							for(;i<7;i++){
 								// Find an empty entry and set filename to the dst_base and inodeNumber to src_inodeID
 								if(!bitmap_test(bmp,i)){
 									strncpy(dst_parentDirBlock.dentries[i].filename,dst_base,FS_FNAME_MAX);
+									/*printf("index: %lu,dst_base: %s\n",i,dst_parentDirBlock.dentries[i].filename);
+									if(src_inodeID == dst_parentDirInodeID){
+										printf("Link to yourself\n");
+									}*/
 									dst_parentDirBlock.dentries[i].inodeNumber = src_inodeID;
 									// Increment linkCount by 1
 									src_inode.linkCount += 1;
 									bitmap_set(bmp,i);
-									if(block_store_inode_write(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode) && block_store_inode_write(fs->BlockStore_inode,src_inodeID,&src_inode) && block_store_write(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock)){
+									// Have to update the src inode first, in case src_inodeID == dst_parentDirInodeID, ie, link to yourself
+									if(block_store_inode_write(fs->BlockStore_inode,src_inodeID,&src_inode) && block_store_inode_write(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode) && block_store_write(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock)){
 										bitmap_destroy(bmp);
 										return 0;
-									}	
+									}
+									printf("Error: -9\n");
+									return -9;	
 								}
+								//printf("index: %lu,dst_base: %s\n",i,dst_parentDirBlock.dentries[i].filename);
 							}
+							printf("Error: -8\n");
 							return -7;	
 						}
+						printf("Error: -6\n");
 						return -6;
 					}
+					printf("Error: -5\n");
 					return -5;	
 				}
+				printf("Error: -4\n");
 				return -4;
 			}
+			printf("Error: -3\n");
 			return -3;
 		}
+		printf("Error: -2\n");
 		return -2;		
 	}
+	printf("Error: -1\n");
 	return -1;
 }

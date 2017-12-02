@@ -1010,12 +1010,53 @@ TEST(j_tests, link) {
 	ASSERT_EQ(system("cp c_tests.F17FS h_tests.F17FS"), 0);
 	F17FS *fs = fs_mount(test_fname);
 	ASSERT_NE(fs, nullptr);
-	int fd = fs_open(fs, fnames[0]);
-	// FS_LINK 1
 	dyn_array_t *record_results = NULL;
-	ASSERT_EQ(fs_link(fs,fnames[2],"/folder/with_new_file"),0);
-		
+	// FS_LINK 1 Normal, file, make a link next to it
+	ASSERT_EQ(fs_link(fs,fnames[0],"/new_file"),0);
+	record_results = fs_get_dir(fs,"/");		
+	ASSERT_NE(record_results, nullptr);
+    	ASSERT_TRUE(find_in_directory(record_results, "file"));
+	ASSERT_TRUE(find_in_directory(record_results, "folder"));
+   	ASSERT_TRUE(find_in_directory(record_results, "new_file"));
+    	ASSERT_EQ(dyn_array_size(record_results), 3);
+    	dyn_array_destroy(record_results);
+	// FS_LINK 2 Normal, directory, link next to it
+	ASSERT_EQ(fs_link(fs,fnames[1],"/new_folder"),0);
+	record_results = fs_get_dir(fs,"/new_folder");
+	ASSERT_NE(record_results, nullptr);	
+    	ASSERT_TRUE(find_in_directory(record_results, "with_file"));
+	ASSERT_TRUE(find_in_directory(record_results, "with_folder"));
+    	ASSERT_EQ(dyn_array_size(record_results), 2);
+    	dyn_array_destroy(record_results);
+	// FS_LINK 3 Normal, OH BOY, directory will contain itself (check that /folder/itself/itself/itself/itself/with_file exists)	
+	ASSERT_EQ(fs_link(fs,fnames[1],"/folder/itself"),0);
+	record_results = fs_get_dir(fs,"/folder/itself/itself/itself/itself");
+	ASSERT_NE(record_results, nullptr);	
+	ASSERT_TRUE(find_in_directory(record_results, "itself"));
+    	ASSERT_TRUE(find_in_directory(record_results, "with_file"));
+	ASSERT_TRUE(find_in_directory(record_results, "with_folder"));
+    	ASSERT_EQ(dyn_array_size(record_results), 3);
+    	dyn_array_destroy(record_results);
+	// FS_LINK 4 Normal, file, wite to hardlink, read the new data from fd to original file
+	int fd = fs_open(fs,"/new_file");
+	ASSERT_GE(fd,0);
+	uint8_t all_six[666];
+	memset(all_six,0x66,666);
+	ASSERT_EQ(fs_write(fs,fd,all_six,666),666);
+	uint8_t read_buffer[666] = {0};
+	ASSERT_EQ(fs_close(fs,fd),0);
+	fd = fs_open(fs,"/file");
+	ASSERT_EQ(fs_read(fs,fd,read_buffer,666),666);
+	ASSERT_EQ(memcmp(read_buffer,all_six,666),0);
+	ASSERT_EQ(fs_close(fs,fd),0);
+	// FS_LINK 5 Normal, file, delete hardlinked file, make sure original still works
+	ASSERT_EQ(fs_remove(fs,"/new_file"),0);	
+	fd = fs_open(fs,"/file");
+	ASSERT_EQ(fs_write(fs,fd,"Hello world!",12),12);
+	ASSERT_EQ(fs_close(fs,fd),0);
+	// FS_LINK 6 Normal, directory, delete a hardlink directory that has contents!	
 	fs_unmount(fs);
+	score += 20;
 }
 #endif
 
