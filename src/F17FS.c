@@ -468,7 +468,8 @@ dyn_array_t *fs_get_dir(F17FS_t *fs, const char *path){
 	// validate the pathname
 	// valid path must start with '/'
 	char firstChar = *path;
-	if(firstChar != '/'){return NULL;}
+	if(firstChar != '/'){
+		return NULL;}
 	// parse the pathname
 	char dirc[strlen(path)+1]; 
 	char basec[strlen(path)+1];
@@ -803,8 +804,8 @@ int fs_remove(F17FS_t *fs, const char *path) {
 		block_store_inode_read(fs->BlockStore_inode,fileInodeID,&fileInode);
 		if(fileInode.fileType=='d'){
 		// If the file is a dir, delete it only if it is empty, meaning vacantFile == 0x00
-			if(fileInode.vacantFile == 0x00){
-				// To delete a dir, remove its entry from the directory block of its parent inode
+			if(fileInode.vacantFile == 0x00 || fileInode.linkCount > 1){
+				// To delete a dir, remove its entry from the directory block of its parent inode, or the number of hardlinks > 1
 				inode_t dirInode; // Parent directoy inode
 				block_store_inode_read(fs->BlockStore_inode,dirInodeID,&dirInode);
 				//printf("Dir %s before clear file,vacantFile: %d\n",path,dirInode.vacantFile); 
@@ -814,7 +815,9 @@ int fs_remove(F17FS_t *fs, const char *path) {
 				int m=0;
 				for(;m<7; m++){
 					if(bitmap_test(bmp,m)){
-						if(fileInodeID == db_t.dentries[m].inodeNumber /* && 0 < parentDir.dentries[k].inodeNumber*/){
+						if(0 == strncmp(db_t.dentries[m].filename,baseFileName,FS_FNAME_MAX) /* && 0 < parentDir.dentries[k].inodeNumber*/){
+							memset(db_t.dentries[m].filename,'\0',FS_FNAME_MAX);
+							db_t.dentries[m].inodeNumber = 0x00;
 							bitmap_reset(bmp,m);	
 							break;
 						}
@@ -823,6 +826,7 @@ int fs_remove(F17FS_t *fs, const char *path) {
 				//printf("Dir %s after clear file,vacantFile: %d\n",path,dirInode.vacantFile); 
 				bitmap_destroy(bmp);
 				block_store_inode_write(fs->BlockStore_inode,dirInodeID,&dirInode);
+				block_store_write(fs->BlockStore_whole,dirInode.directPointer[0],&db_t);
 				// If the directory file inode is not hardlinked to any other file
 				if(fileInode.linkCount <= 1) {
 					// Remove its file block pointed by directPointer[0], then remove its inode from inode table
@@ -1256,42 +1260,44 @@ int fs_link(F17FS_t *fs, const char *src, const char *dst){
 								// Find an empty entry and set filename to the dst_base and inodeNumber to src_inodeID
 								if(!bitmap_test(bmp,i)){
 									strncpy(dst_parentDirBlock.dentries[i].filename,dst_base,FS_FNAME_MAX);
-									/*printf("index: %lu,dst_base: %s\n",i,dst_parentDirBlock.dentries[i].filename);
-									if(src_inodeID == dst_parentDirInodeID){
-										printf("Link to yourself\n");
-									}*/
+									//printf("index: %lu,dst_base: %s\n",i,dst_parentDirBlock.dentries[i].filename);
 									dst_parentDirBlock.dentries[i].inodeNumber = src_inodeID;
 									// Increment linkCount by 1
 									src_inode.linkCount += 1;
+									if(src_inodeID == dst_parentDirInodeID){
+										dst_parentDirInode.linkCount += 1;
+									}
 									bitmap_set(bmp,i);
 									// Have to update the src inode first, in case src_inodeID == dst_parentDirInodeID, ie, link to yourself
 									if(block_store_inode_write(fs->BlockStore_inode,src_inodeID,&src_inode) && block_store_inode_write(fs->BlockStore_inode,dst_parentDirInodeID,&dst_parentDirInode) && block_store_write(fs->BlockStore_whole,dst_parentDirInode.directPointer[0],&dst_parentDirBlock)){
 										bitmap_destroy(bmp);
 										return 0;
 									}
-									printf("Error: -9\n");
+									//printf("Error: -9\n");
+									bitmap_destroy(bmp);
 									return -9;	
 								}
 								//printf("index: %lu,dst_base: %s\n",i,dst_parentDirBlock.dentries[i].filename);
 							}
-							printf("Error: -8\n");
+							//printf("Error: -8\n");
+							bitmap_destroy(bmp);
 							return -7;	
 						}
-						printf("Error: -6\n");
+						//printf("Error: -6\n");
 						return -6;
 					}
-					printf("Error: -5\n");
+					//printf("Error: -5\n");
 					return -5;	
 				}
-				printf("Error: -4\n");
+				//printf("Error: -4\n");
 				return -4;
 			}
-			printf("Error: -3\n");
+			//printf("Error: -3\n");
 			return -3;
 		}
-		printf("Error: -2\n");
+		//printf("Error: -2\n");
 		return -2;		
 	}
-	printf("Error: -1\n");
+	//printf("Error: -1\n");
 	return -1;
 }

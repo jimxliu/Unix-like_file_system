@@ -553,7 +553,7 @@ TEST(d_tests, write_file_simple) {
     fs_unmount(fs);
     
 }
-/*
+
 TEST(d_tests, write_file_fill) {
     // Still gotta test write 6,7,8,9
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
@@ -635,7 +635,7 @@ TEST(d_tests, write_file_fill) {
     fs_unmount(fs);
     score += 15;
 }
-*/
+
 /* 0-33 34-65519 65520-65535
     int fs_remove(F17FS *fs, const char *path);
     1. Normal, file at root
@@ -709,7 +709,7 @@ TEST(e_tests, remove_file) {
     5. Error, fd invalid
     6. Error, whence not a valid value
 */
-/*
+
 TEST(g_tests, seek) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -748,7 +748,7 @@ TEST(g_tests, seek) {
     ASSERT_LT(position, 0);
     fs_unmount(fs);
     score += 13;
-}*/
+}
 /*
     ssize_t fs_read(F17FS *fs, int fd, void *dst, size_t nbyte);
     1. Normal, begin to < 1 block
@@ -763,7 +763,7 @@ TEST(g_tests, seek) {
     10. Normal, nbyte 0
     11. Normal, at EOF
 */
-/*
+
 TEST(h_tests, read) {
     vector<const char *> fnames{"/file_a", "/file_b", "/file_c", "/file_d"};
     const char *test_fname = "g_tests.F17FS";
@@ -840,7 +840,7 @@ TEST(h_tests, read) {
     fs_unmount(fs);
     score += 20;
 }
-*/
+
 #ifdef GRAD_TESTS
 // <<<<<<< HEAD
 // =======
@@ -1055,6 +1055,38 @@ TEST(j_tests, link) {
 	ASSERT_EQ(fs_write(fs,fd,"Hello world!",12),12);
 	ASSERT_EQ(fs_close(fs,fd),0);
 	// FS_LINK 6 Normal, directory, delete a hardlink directory that has contents!	
+	ASSERT_EQ(fs_remove(fs,"/new_folder"),0);	
+	record_results = fs_get_dir(fs,fnames[1]);
+	ASSERT_NE(record_results,nullptr);
+	ASSERT_TRUE(find_in_directory(record_results,"with_file"));	
+    	dyn_array_destroy(record_results);
+	// FS_LINK 7 Error, dst exists
+	ASSERT_LT(fs_link(fs,fnames[2],fnames[2]),0);
+   	// FS_LINK 8 Error, dst parent does not exist
+   	ASSERT_LT(fs_link(fs,fnames[2],"/oopsidontexist/myfile"),0);
+    	// FS_LINK 9 Error, dst parent full
+	ASSERT_EQ(fs_create(fs,"/folder2",FS_DIRECTORY),0);
+	char newfnames[] = "/folder2/a\0";
+	for(char file_two =  'a'; file_two < 'h'; file_two++){
+		newfnames[9] = file_two;
+		ASSERT_EQ(fs_create(fs,newfnames,FS_REGULAR),0);
+	}
+	record_results = fs_get_dir(fs,"/folder2");
+	ASSERT_NE(record_results,nullptr);
+	ASSERT_EQ(dyn_array_size(record_results),7);
+    	dyn_array_destroy(record_results);
+	ASSERT_LT(fs_link(fs,fnames[0],"/folder2/h"),0);
+	// FS_LINK 10 Error, src does not exist
+    	ASSERT_LT(fs_link(fs,fnames[4],"/anothernewfile"),0);
+    	// FS_LINK 11 Error, FS null
+    	ASSERT_LT(fs_link(NULL,fnames[2],"/toobadfsisnull"),0);
+   	// FS_LINK 12 Error, src null
+    	ASSERT_LT(fs_link(fs,NULL,"/folder/ghost"),0);
+    	// FS_LINK 13 Error, dst null
+    	ASSERT_LT(fs_link(fs,fnames[2],NULL),0);
+    	// FS_LINK 14 Error, dst root
+    	ASSERT_LT(fs_link(fs,fnames[2],"/"),0);
+
 	fs_unmount(fs);
 	score += 20;
 }
